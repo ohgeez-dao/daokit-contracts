@@ -1,13 +1,14 @@
 {
-  "name": "@levxdao/hardhat-foundation",
-  "description": "",
+  "name": "@levxdao/daokit-contracts",
+  "description": "We solve problems of current DAOs",
+  "version": "0.0.1",
   "keywords": [
     "levx",
     "levx-dao"
   ],
-  "homepage": "https://github.com/levxdao/hardhat-foundation#readme",
+  "homepage": "https://github.com/levxdao/daokit-contracts#readme",
   "bugs": {
-    "url": "https://github.com/levxdao/hardhat-foundation/issues",
+    "url": "https://github.com/levxdao/daokit-contracts/issues",
     "email": "team@levx.io"
   },
   "license": "WTFPL",
@@ -89,5 +90,8 @@
     "ts-node": "^10.0.0",
     "typechain": "^5.0.0",
     "typescript": "^4.3.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.5.0"
   }
 }

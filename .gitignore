@@ -17,3 +17,5 @@ typechain/
 # Coverage
 coverage/
 coverage.json
+
+.idea
