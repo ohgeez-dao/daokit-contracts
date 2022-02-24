@@ -11,10 +11,16 @@ This project provides a proper set of tools to solve problems of current DAOs.
 4. Role/duty of each member is unclear & their performance isn't checked on-chain
 
 ## To-do
+- [ ] Core team can start a fundraising choosing between `FixedPriceSale`, `EnglishAuction` or `DutchAuction`
+- [ ] Anyone can buy DAO tokens with ETH(or native coin)
+- [ ] If fundraising succeeded, participants can withdraw DAO tokens
+- [ ] If fundraising failed, participants can be refunded their ETH(or native coin)
+- [ ] Raised fund can be sent to DAO treasury
+- [ ] Raised fund can be used to add liquidity combined with equivalent worth DAO tokens
 - [x] Core team can add/remove members or change quorum with a delay (min. 1 day) with signatures >= quorum
 - [x] Core team can queue a tx from the treasury with a delay (min. 1 day) with signatures >= quorum
 - [x] Core team can cancel a tx that was queued with signatures >= quorum
-- [ ] Core team can start or stop vesting contracts
+- [x] Core team can start or stop vesting contracts
 - [x] Anyone can execute a tx that was queued and has passed the eta
 - [x] Committee can cancel a queued tx with signatures >= quorum
 - [x] Committee can add/remove tx filter with signatures >= quorum (to disallow certain intention of core team)
