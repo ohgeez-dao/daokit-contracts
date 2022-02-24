@@ -5,7 +5,7 @@ pragma solidity 0.8.12;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract CommitteeGovernance {
+contract VotingGovernance {
     using SafeERC20 for IERC20;
 
     enum VoteType {
@@ -30,20 +30,14 @@ contract CommitteeGovernance {
     /**
      * @notice Minimum number of votes required to pass a proposal
      */
-    uint128 public immutable proposalQuorumMin;
+    uint128 public immutable quorumMin;
     /**
      * @notice Minimum number of votes required for submitting a proposal
      */
-    uint128 public immutable proposalVotesMin;
+    uint128 public immutable votesMin;
 
-    mapping(address => bool) public isCommitteeMember;
-    address[] public committeeMembers;
-    uint128 public committeeQuorum;
     mapping(bytes32 => Proposal) public proposals;
 
-    event AddCommitteeMember(address indexed member);
-    event RemoveCommitteeMember(address indexed member);
-    event ChangeCommitteeQuorum(uint128 quorum);
     event SubmitProposal(bytes32 indexed hash);
     event CancelProposal(bytes32 indexed hash);
     event ExecuteProposal(bytes32 indexed hash, address executor);
@@ -63,30 +57,14 @@ contract CommitteeGovernance {
         ProposalStatus status;
     }
 
-    modifier calledBySelf {
-        require(msg.sender == address(this), "DAOKIT: FORBIDDEN");
-        _;
-    }
-
     constructor(
         address _tokenAddress,
-        uint128 _proposalQuorumMin,
-        uint128 _proposalVotesMin,
-        uint128 _committeeQuorum,
-        address[] memory _committeeMembers
+        uint128 _quorumMin,
+        uint128 _votesMin
     ) {
         tokenAddress = _tokenAddress;
-        proposalQuorumMin = _proposalQuorumMin;
-        proposalVotesMin = _proposalVotesMin;
-
-        committeeQuorum = _committeeQuorum;
-        for (uint256 i; i < _committeeMembers.length; i++) {
-            address member = _committeeMembers[i];
-            isCommitteeMember[member] = true;
-            committeeMembers.push(member);
-
-            emit AddCommitteeMember(member);
-        }
+        quorumMin = _quorumMin;
+        votesMin = _votesMin;
     }
 
     function hashProposal(
@@ -97,43 +75,6 @@ contract CommitteeGovernance {
         uint128 quorum
     ) public pure returns (bytes32) {
         return keccak256(abi.encode(proposer, keccak256(abi.encode(data)), startBlock, endBlock, quorum));
-    }
-
-    /**
-     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
-     * `executeProposal()`
-     */
-    function addCommitteeMember(address committeeMember) external calledBySelf {
-        isCommitteeMember[msg.sender] = true;
-        committeeMembers.push(msg.sender);
-
-        emit AddCommitteeMember(committeeMember);
-    }
-
-    /**
-     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
-     * `executeProposal()`
-     */
-    function removeCommitteeMember(address committeeMember) external calledBySelf {
-        isCommitteeMember[msg.sender] = false;
-        for (uint256 i; i < committeeMembers.length; i++) {
-            if (committeeMembers[i] == committeeMember) {
-                committeeMembers[i] = committeeMembers[committeeMembers.length - 1];
-                committeeMembers.pop();
-            }
-        }
-
-        emit RemoveCommitteeMember(committeeMember);
-    }
-
-    /**
-     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
-     * `executeProposal()`
-     */
-    function changeCommitteeQuorum(uint128 quorum) external calledBySelf {
-        committeeQuorum = quorum;
-
-        emit ChangeCommitteeQuorum(quorum);
     }
 
     /**
@@ -149,8 +90,8 @@ contract CommitteeGovernance {
     ) external {
         require(startBlock > 0, "DAOKIT: INVALID_START_BLOCK");
         require(endBlock >= block.timestamp + MINIMUM_DELAY, "DAOKIT: INVALID_END_BLOCK");
-        require(quorum >= proposalQuorumMin, "DAOKIT: INVALID_QUORUM");
-        require(votes >= proposalVotesMin, "DAOKIT: INSUFFICIENT_VOTES");
+        require(quorum >= quorumMin, "DAOKIT: INVALID_QUORUM");
+        require(votes >= votesMin, "DAOKIT: INSUFFICIENT_VOTES");
 
         bytes32 hash = hashProposal(msg.sender, data, startBlock, endBlock, quorum);
         Proposal storage proposal = proposals[hash];

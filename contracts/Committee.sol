@@ -4,60 +4,53 @@ pragma solidity 0.8.12;
 
 import "./libraries/EIP712s.sol";
 import "./libraries/Signatures.sol";
-import "./CommitteeGovernance.sol";
+import "./VotingGovernance.sol";
+import "./MultiSigGovernance.sol";
 
-contract Committee is CommitteeGovernance {
+contract Committee is VotingGovernance, MultiSigGovernance {
     // keccak256("ExecuteTransactions(address[] target,uint256[] value,string[] signature,bytes[] data)");
     bytes32 public constant EXECUTE_TRANSACTIONS_TYPEHASH =
         0x856020ab5d9b506b35ac81d891a98f181668092deb245ac5cad22f698bdfa391;
 
-    uint256 internal immutable _CACHED_CHAIN_ID;
-    bytes32 internal immutable _DOMAIN_SEPARATOR;
+    event ExecuteTransaction(address indexed target, uint256 value, string signature, bytes data);
 
-    event ExecuteTransaction(
-        bytes32 indexed txHash,
-        address indexed target,
-        uint256 value,
-        string signature,
-        bytes data
-    );
+    modifier calledBySelf {
+        require(msg.sender == address(this), "DAOKIT: FORBIDDEN");
+        _;
+    }
 
     constructor(
         address _tokenAddress,
-        uint128 _proposalQuorumMin,
-        uint128 _proposalVotesMin,
-        uint128 _committeeQuorum,
-        address[] memory _committeeMembers
-    ) CommitteeGovernance(_tokenAddress, _proposalQuorumMin, _proposalVotesMin, _committeeQuorum) {
-        _CACHED_CHAIN_ID = block.chainid;
-        _DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                // keccak256('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
-                0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f,
-                keccak256(bytes(Strings.toHexString(uint160(address(this))))),
-                0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6, // keccak256(bytes("1"))
-                block.chainid,
-                address(this)
-            )
-        );
+        uint128 _quorumMin,
+        uint128 _votesMin,
+        address[] memory _members,
+        uint128 _required
+    ) VotingGovernance(_tokenAddress, _quorumMin, _votesMin) MultiSigGovernance(members, _required) {
+        // Empty
     }
 
-    function DOMAIN_SEPARATOR() public view returns (bytes32) {
-        bytes32 domainSeparator;
-        if (_CACHED_CHAIN_ID == block.chainid) domainSeparator = _DOMAIN_SEPARATOR;
-        else {
-            domainSeparator = keccak256(
-                abi.encode(
-                    // keccak256('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
-                    0x8b73c3c69bb8fe3d512ecc4cf759cc79239f7b179b0ffacaa9a75d522b39400f,
-                    keccak256(bytes(Strings.toHexString(uint160(address(this))))),
-                    0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6, // keccak256(bytes("1"))
-                    block.chainid,
-                    address(this)
-                )
-            );
-        }
-        return domainSeparator;
+    /**
+     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
+     * `executeProposal()`
+     */
+    function addMember(address member) external calledBySelf {
+        _addMember(member);
+    }
+
+    /**
+     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
+     * `executeProposal()`
+     */
+    function removeMember(address member) external calledBySelf {
+        _removeMember(member);
+    }
+
+    /**
+     * @notice This function needs to be called by itself, which means it needs to be done by `submitProposal()` and
+     * `executeProposal()`
+     */
+    function changeRequirement(uint128 _required) external calledBySelf {
+        _changeRequirement(_required);
     }
 
     function executeTransactions(
@@ -67,7 +60,7 @@ contract Committee is CommitteeGovernance {
         bytes[] memory data,
         address[] memory signers,
         Signatures.Signature[] memory signatures
-    ) external quorumReached(committeeMembers.length, committeeQuorum, uint128(signatures.length)) {
+    ) external requirementMet(uint128(signatures.length)) {
         bytes32 hash = keccak256(
             abi.encode(
                 EXECUTE_TRANSACTIONS_TYPEHASH,
@@ -77,23 +70,22 @@ contract Committee is CommitteeGovernance {
                 EIP712s.hashBytesArray(data)
             )
         );
-        _verifySigners(signers);
-        Signatures.verifySignatures(DOMAIN_SEPARATOR(), hash, signers, signatures);
+        _verifySignatures(hash, signers, signatures);
 
         for (uint256 i; i < target.length; i++) {
-            require(target != address(this), "DAOKIT: INVALID_TARGET");
+            require(target[i] != address(this), "DAOKIT: INVALID_TARGET");
 
             bytes memory callData;
             if (bytes(signature[i]).length == 0) {
-                callData = data;
+                callData = data[i];
             } else {
                 callData = abi.encodePacked(bytes4(keccak256(bytes(signature[i]))), data[i]);
             }
 
-            (bool success, bytes memory returnData) = target.call{value: value[i]}(callData);
+            (bool success, ) = target[i].call{value: value[i]}(callData);
             require(success, "DAOKIT: TRANSACTION_REVERTED");
 
-            emit ExecuteTransaction(txHash, target, value, signature, data);
+            emit ExecuteTransaction(target[i], value[i], signature[i], data[i]);
         }
     }
 }

@@ -4,16 +4,16 @@ pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/ITransactionFilter.sol";
-import "./CoreTeamGovernance.sol";
+import "./CoreTeam.sol";
 import "./TransactionFilterManager.sol";
 
-contract DAOWallet is CoreTeamGovernance, TransactionFilterManager, Ownable {
+contract DAOWallet is CoreTeam, TransactionFilterManager, Ownable {
     constructor(
         address _owner,
         uint64 _delay,
-        uint128 _coreTeamQuorum,
-        address[] memory _coreMembers
-    ) CoreTeamGovernance(_delay, _coreTeamQuorum, _coreMembers) {
+        address[] memory _members,
+        uint128 _required
+    ) CoreTeam(_delay, _members, _required) {
         _transferOwnership(_owner);
     }
 
