@@ -2,13 +2,32 @@
 // OpenZeppelin Contracts v4.4.1 (finance/VestingWallet.sol)
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
-contract VestingVault is Ownable {
+interface IMultiSigGovernance {
+    function isMember(address account) external view returns (bool);
+}
+
+contract VestingVault {
     using SafeERC20 for IERC20;
+
+    struct Vesting {
+        bool cancelled;
+        address beneficiary;
+        address token;
+        uint64 start;
+        uint64 duration;
+        uint256 allocation;
+        uint256 released;
+    }
+
+    uint256 public constant MIN_DURATION = 3 days;
+
+    address public immutable coreTeam;
+    address public immutable committee;
+    Vesting[] public vesting;
 
     event Create(
         uint256 indexed id,
@@ -21,20 +40,9 @@ contract VestingVault is Ownable {
     event Cancel(uint256 indexed id, address indexed remainderRecipient, uint256 remainder);
     event Release(uint256 indexed id, uint256 amount);
 
-    struct Vesting {
-        bool cancelled;
-        address beneficiary;
-        address token;
-        uint64 start;
-        uint64 duration;
-        uint256 allocation;
-        uint256 released;
-    }
-
-    Vesting[] public vesting;
-
-    constructor(address owner) {
-        _transferOwnership(owner);
+    constructor(address coreTeam, address _committee) {
+        coreTeam = coreTeam;
+        committee = _committee;
     }
 
     /**
@@ -60,15 +68,16 @@ contract VestingVault is Ownable {
      * @notice Create a vesting with owner, beneficiary, token, allocation, start timestamp and duration.
      */
     function create(
-        address owner,
         address beneficiaryAddress,
         address tokenAddress,
         uint256 totalAllocation,
         uint64 startTimestamp,
         uint64 durationSeconds
-    ) external payable onlyOwner returns (uint256 id) {
-        require(owner != address(0), "DAOKIT: INVALID_OWNER");
+    ) external payable returns (uint256 id) {
+        require(msg.sender == coreTeam, "DAOKIT: FORBIDDEN");
         require(beneficiaryAddress != address(0), "DAOKIT: INVALID_BENEFICIARY");
+        require(block.timestamp <= startTimestamp, "DAOKIT: INVALID_START");
+        require(MIN_DURATION <= durationSeconds, "DAOKIT: INVALID_DURATION");
 
         id = vesting.length;
         Vesting storage v = vesting.push();
@@ -90,8 +99,12 @@ contract VestingVault is Ownable {
     /**
      * @notice Cancel an ongoing vesting with the vested amount sent to beneficiary and the rest to `remainderRecipient`
      */
-    function cancel(uint256 id, address remainderRecipient) external onlyOwner {
+    function cancel(uint256 id, address remainderRecipient) external {
+        require(msg.sender == coreTeam || msg.sender == committee, "DAOKIT: FORBIDDEN");
+
         Vesting storage v = vesting[id];
+        require(msg.sender != coreTeam || IMultiSigGovernance(committee).isMember(v.beneficiary), "DAOKIT: ABUSIVE");
+
         uint256 amount = _tryRelease(v);
         emit Release(id, amount);
 
@@ -109,7 +122,7 @@ contract VestingVault is Ownable {
         Vesting storage v = vesting[id];
         amount = _tryRelease(v);
         emit Release(id, amount);
-        require(amount > 0, "DAOKIT: UNABLE_TO_RELEASE");
+        require(amount > 0, "DAOKIT: NO_AMOUNT");
     }
 
     function _tryRelease(Vesting storage v) internal returns (uint256 amount) {
