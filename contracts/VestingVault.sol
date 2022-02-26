@@ -40,8 +40,8 @@ contract VestingVault {
     event Cancel(uint256 indexed id, address indexed remainderRecipient, uint256 remainder);
     event Release(uint256 indexed id, uint256 amount);
 
-    constructor(address coreTeam, address _committee) {
-        coreTeam = coreTeam;
+    constructor(address _coreTeam, address _committee) {
+        coreTeam = _coreTeam;
         committee = _committee;
     }
 
