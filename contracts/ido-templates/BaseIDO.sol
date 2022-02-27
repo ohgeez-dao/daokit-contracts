@@ -120,7 +120,7 @@ abstract contract BaseIDO is Ownable {
     event AddToWhitelist(address indexed account);
     event RemoveFromWhitelist(address indexed account);
     event Enroll(address indexed account, uint256 amount);
-    event Withdraw(address indexed account, uint256 tokenId, uint256 amount);
+    event Claim(address indexed account, uint256 tokenId, uint256 amount);
     event Refund(address indexed account, uint256 amount);
     event Close(address to);
 
@@ -140,7 +140,7 @@ abstract contract BaseIDO is Ownable {
         _updateParams(_currency, _asset, _start, _duration, _whitelistOnly, _softCap, _hardCap, _individualCap, _uri);
     }
 
-    function getExchangeInfo(uint256 amount, uint64 lastTimestamp)
+    function claimableAsset(uint256 amount, uint64 lastTimestamp)
         public
         view
         virtual
@@ -250,7 +250,7 @@ abstract contract BaseIDO is Ownable {
         currency.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function withdraw() external notCancelled {
+    function claim() external notCancelled {
         require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
         require(softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
 
@@ -258,9 +258,9 @@ abstract contract BaseIDO is Ownable {
         require(e.amount > 0, "DAOKIT: NOT_ENROLLED");
         require(!e.withdrawnOrRefunded, "DAOKIT: WITHDRAWN");
 
-        (uint256 tokenIdAsset, uint256 amountAsset) = getExchangeInfo(e.amount, e.lastTimestamp);
-        emit Withdraw(msg.sender, tokenIdAsset, amountAsset);
-        _offerAsset(msg.sender, tokenIdAsset, amountAsset);
+        (uint256 tokenId, uint256 amount) = claimableAsset(e.amount, e.lastTimestamp);
+        emit Claim(msg.sender, tokenId, amount);
+        _offerAsset(msg.sender, tokenId, amount);
     }
 
     function refund() external notCancelled {
