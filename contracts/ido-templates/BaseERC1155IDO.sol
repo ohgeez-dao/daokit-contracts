@@ -39,8 +39,12 @@ abstract contract BaseERC1155IDO is BaseIDO {
     /**
      * @notice Transfers all balance of ERC1155 `asset` from `this` contract to `to` address
      */
-    function _returnAssets(address to) internal override {
+    function _returnAssets(address to, uint256[] memory tokenIds) internal override {
         address _asset = asset;
-        IERC1155(_asset).safeTransferFrom(address(this), to, 0, IERC1155(_asset).balanceOf(address(this), 0), ""); // TODO
+        for (uint256 i; i < tokenIds.length; i++) {
+            uint256 tokenId = tokenIds[i];
+            uint256 balance = IERC1155(_asset).balanceOf(address(this), tokenId);
+            IERC1155(_asset).safeTransferFrom(address(this), to, tokenId, balance, "");
+        }
     }
 }

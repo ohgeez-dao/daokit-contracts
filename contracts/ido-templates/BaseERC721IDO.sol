@@ -3,7 +3,6 @@
 pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 import "./BaseIDO.sol";
 
 interface IERC721Mintable {
@@ -11,8 +10,8 @@ interface IERC721Mintable {
 }
 
 /**
- * @notice In this IDO, the `asset` *MUST* conform to `IERC721` and `IERC721Enumeralbe` (and optionally
- *  `IERC721Mintable` for offering via minting).
+ * @notice In this IDO, the `asset` *MUST* conform to `IERC721` (and optionally `IERC721Mintable` for offering via
+ *  minting).
  */
 abstract contract BaseERC721IDO is BaseIDO {
     /**
@@ -35,12 +34,10 @@ abstract contract BaseERC721IDO is BaseIDO {
     /**
      * @notice Transfers all balance of ERC721 `asset` from `this` contract to `to` address
      */
-    function _returnAssets(address to) internal override {
+    function _returnAssets(address to, uint256[] memory tokenIds) internal override {
         address _asset = asset;
-        uint256 balance = IERC721(_asset).balanceOf(address(this));
-        for (uint256 i; i < balance; i++) {
-            uint256 tokenId = IERC721Enumerable(_asset).tokenOfOwnerByIndex(address(this), i);
-            IERC721(_asset).safeTransferFrom(address(this), to, tokenId);
+        for (uint256 i; i < tokenIds.length; i++) {
+            IERC721(_asset).safeTransferFrom(address(this), to, tokenIds[i]);
         }
     }
 }

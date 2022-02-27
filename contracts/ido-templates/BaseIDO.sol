@@ -159,15 +159,15 @@ abstract contract BaseIDO is Ownable {
     /**
      * @notice This is called when the IDO was `cancelled` or `closed` so that assets need to be returned
      */
-    function _returnAssets(address to) internal virtual;
+    function _returnAssets(address to, uint256[] memory tokenIds) internal virtual;
 
-    function cancel(address to) external onlyOwner {
+    function cancel(address to, uint256[] memory tokenIds) external onlyOwner {
         require(!cancelled, "DAOKIT: CANCELLED");
         require(block.timestamp < start, "DAOKIT: STARTED");
 
         cancelled = true;
         emit Cancel(to);
-        _returnAssets(to);
+        _returnAssets(to, tokenIds);
     }
 
     function updateParams(
@@ -276,14 +276,14 @@ abstract contract BaseIDO is Ownable {
         currency.safeTransfer(msg.sender, _amount);
     }
 
-    function close(address to) external onlyOwner notCancelled {
+    function close(address to, uint256[] memory tokenIds) external onlyOwner notCancelled {
         require(!closed, "DAOKIT: CLOSED");
         require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
 
         closed = true;
         emit Close(to);
         if (totalAmount < softCap) {
-            _returnAssets(to);
+            _returnAssets(to, tokenIds);
         } else {
             address _currency = currency;
             _currency.safeTransferFrom(address(this), to, _currency.balanceOf(address(this)));

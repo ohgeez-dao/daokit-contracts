@@ -26,7 +26,7 @@ abstract contract BaseERC20IDO is BaseIDO {
     /**
      * @notice Transfers all balance of ERC20 `asset` from `this` contract to `to` address
      */
-    function _returnAssets(address to) internal override {
+    function _returnAssets(address to, uint256[] memory) internal override {
         address _currency = currency;
         IERC20(_currency).safeTransfer(to, IERC20(_currency).balanceOf(address(this)));
     }
