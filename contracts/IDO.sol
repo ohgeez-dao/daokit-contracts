@@ -16,6 +16,7 @@ abstract contract IDO is Ownable {
     uint256 public individualCap;
     string public uri;
     bool public cancelled;
+    bool public closed;
 
     mapping(address => bool) public isWhitelisted;
 
@@ -33,13 +34,13 @@ abstract contract IDO is Ownable {
         bool withdrawnOrRefunded;
     }
 
-    event Cancel();
+    event Cancel(address to);
     event AddToWhitelist(address indexed account);
     event RemoveFromWhitelist(address indexed account);
     event Enroll(address indexed account, uint256 amount);
     event Withdraw(address indexed account, uint256 tokenId, uint256 amount);
     event Refund(address indexed account, uint256 amount);
-    event Adjust();
+    event Close(address to);
 
     constructor(
         address _owner,
@@ -89,17 +90,17 @@ abstract contract IDO is Ownable {
         uint256 amount
     ) internal virtual;
 
-    function _withdrawCurrency() internal virtual;
+    function _withdrawAssets(address to) internal virtual;
 
-    function _withdrawAsset() internal virtual;
+    function _collectFunds(address to) internal virtual;
 
-    function cancel() external onlyOwner {
+    function cancel(address to) external onlyOwner {
         require(!cancelled, "DAOKIT: CANCELLED");
         require(block.timestamp < start, "DAOKIT: STARTED");
 
         cancelled = true;
-        emit Cancel();
-        _withdrawAsset();
+        emit Cancel(to);
+        _withdrawAssets(to);
     }
 
     function updateParams(
@@ -176,6 +177,9 @@ abstract contract IDO is Ownable {
     function enroll(uint256 amount) external payable notCancelled {
         require(start <= block.timestamp, "DAOKIT: NOT_STARTED");
         require(block.timestamp < start + duration, "DAOKIT: FINISHED");
+        if (whitelistOnly) {
+            require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
+        }
         if (hardCap > 0) {
             require(totalAmount + amount <= hardCap, "DAOKIT: HARD_CAP_EXCEEDED");
         }
@@ -218,14 +222,16 @@ abstract contract IDO is Ownable {
         _transferCurrency(address(this), msg.sender, tokenIdCurrency, _amount);
     }
 
-    function adjust() external onlyOwner notCancelled {
+    function close(address to) external onlyOwner notCancelled {
+        require(!closed, "DAOKIT: CLOSED");
         require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
 
-        emit Adjust();
+        closed = true;
+        emit Close(to);
         if (totalAmount < softCap) {
-            _withdrawAsset(); // TODO
+            _withdrawAssets(to);
         } else {
-            _withdrawCurrency(); // TODO
+            _collectFunds(to);
         }
     }
 }
