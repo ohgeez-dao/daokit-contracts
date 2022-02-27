@@ -3,25 +3,107 @@
 pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./libraries/FungibleTokens.sol";
 
-abstract contract IDO is Ownable {
+abstract contract BaseIDO is Ownable {
+    using FungibleTokens for address;
+
+    /**
+     * @notice Token to be used for purchasing (either ERC20 or ETH)
+     */
     address public currency;
+    /**
+     * @notice Token to be sold (One of ERC20, ERC721 or ERC1155)
+     */
     address public asset;
+    /**
+     * @notice Start timestamp
+     */
     uint64 public start;
+    /**
+     * @notice Duration in seconds
+     */
     uint64 public duration;
+    /**
+     * @notice If this sets to true, only whitelisted accounts can call `enroll()`
+     */
     bool public whitelistOnly;
-    uint256 public tokenIdCurrency;
+    /**
+     * @notice Minimum amount to raise. If `totalAmount` is less than this after the IDO finishes, raised amount will be
+     * refunded to the participants using `refund()`.
+     */
     uint256 public softCap;
+    /**
+     * @notice Maximum amount to raise.
+     */
     uint256 public hardCap;
+    /**
+     * @notice Maximum amount than an account can participate with.
+     */
     uint256 public individualCap;
+    /**
+     * @notice A distinct Uniform Resource Identifier (URI) for the IDO. URIs are defined in RFC 3986. The URI
+     * should point to a JSON file that conforms to the "IDO Metadata JSON Schema".
+     *
+     * The "IDO Metadata JSON Schema" is as follows:
+     * {
+     *    "title": "IDO Metadata",
+     *    "type": "object",
+     *    "properties": {
+     *        "name": {
+     *            "type": "string",
+     *            "description": "Identifies the name of the IDO"
+     *        },
+     *        "description": {
+     *            "type": "string",
+     *            "description": "Describes the IDO"
+     *        },
+     *        "logo": {
+     *            "type": "string",
+     *            "description": "A URI pointing to a logo image whose ratio is 1:1."
+     *        },
+     *        "cover": {
+     *            "type": "string",
+     *            "description": "A URI pointing to a cover image whose ratio is 16:9."
+     *        },
+     *        "website": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the website."
+     *        },
+     *        "twitter": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the twitter account."
+     *        },
+     *        "discord": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the discord server."
+     *        },
+     *        "telegram": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the telegram."
+     *        },
+     *        "medium": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the medium."
+     *        },
+     *        "facebook": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the facebook page."
+     *        },
+     *        "reddit": {
+     *            "type": "string",
+     *            "description": "A URI pointing to the reddit."
+     *        }
+     *    }
+     * }
+     */
     string public uri;
-    bool public cancelled;
-    bool public closed;
 
     mapping(address => bool) public isWhitelisted;
-
     mapping(address => Enrollment) public enrollment;
     uint256 public totalAmount;
+    bool public cancelled;
+    bool public closed;
 
     modifier notCancelled {
         require(!cancelled, "DAOKIT: CANCELLED");
@@ -49,25 +131,13 @@ abstract contract IDO is Ownable {
         uint64 _start,
         uint64 _duration,
         bool _whitelistOnly,
-        uint256 _tokenId,
         uint256 _softCap,
         uint256 _hardCap,
         uint256 _individualCap,
         string memory _uri
     ) {
         _transferOwnership(_owner);
-        _updateParams(
-            _currency,
-            _asset,
-            _start,
-            _duration,
-            _whitelistOnly,
-            _tokenId,
-            _softCap,
-            _hardCap,
-            _individualCap,
-            _uri
-        );
+        _updateParams(_currency, _asset, _start, _duration, _whitelistOnly, _softCap, _hardCap, _individualCap, _uri);
     }
 
     function getExchangeInfo(uint256 amount, uint64 lastTimestamp)
@@ -76,23 +146,20 @@ abstract contract IDO is Ownable {
         virtual
         returns (uint256 tokenIdAsset, uint256 amountAsset);
 
-    function _transferCurrency(
-        address from,
+    /**
+     * @notice This is called when the `asset` is initially offered to `to` address for a given `tokenId` and `amount`
+     * only if the IDO was successful, when `totalAmount` > `hardCap`.
+     */
+    function _offerAsset(
         address to,
         uint256 tokenId,
         uint256 amount
     ) internal virtual;
 
-    function _transferAsset(
-        address from,
-        address to,
-        uint256 tokenId,
-        uint256 amount
-    ) internal virtual;
-
-    function _withdrawAssets(address to) internal virtual;
-
-    function _collectFunds(address to) internal virtual;
+    /**
+     * @notice This is called when the IDO was `cancelled` or `closed` so that assets need to be returned
+     */
+    function _returnAssets(address to) internal virtual;
 
     function cancel(address to) external onlyOwner {
         require(!cancelled, "DAOKIT: CANCELLED");
@@ -100,7 +167,7 @@ abstract contract IDO is Ownable {
 
         cancelled = true;
         emit Cancel(to);
-        _withdrawAssets(to);
+        _returnAssets(to);
     }
 
     function updateParams(
@@ -109,7 +176,6 @@ abstract contract IDO is Ownable {
         uint64 _start,
         uint64 _duration,
         bool _whitelistOnly,
-        uint256 _tokenId,
         uint256 _softCap,
         uint256 _hardCap,
         uint256 _individualCap,
@@ -117,18 +183,7 @@ abstract contract IDO is Ownable {
     ) public onlyOwner notCancelled {
         require(block.timestamp < start, "DAOKIT: STARTED");
 
-        _updateParams(
-            _currency,
-            _asset,
-            _start,
-            _duration,
-            _whitelistOnly,
-            _tokenId,
-            _softCap,
-            _hardCap,
-            _individualCap,
-            _uri
-        );
+        _updateParams(_currency, _asset, _start, _duration, _whitelistOnly, _softCap, _hardCap, _individualCap, _uri);
     }
 
     function _updateParams(
@@ -137,12 +192,12 @@ abstract contract IDO is Ownable {
         uint64 _start,
         uint64 _duration,
         bool _whitelistOnly,
-        uint256 _tokenIdCurrency,
         uint256 _softCap,
         uint256 _hardCap,
         uint256 _individualCap,
         string memory _uri
     ) internal {
+        require(_asset != address(0), "DAOKIT: INVALID_ASSET");
         require(block.timestamp < _start, "DAOKIT: INVALID_START");
         require(_duration > 0, "DAOKIT: INVALID_START");
         if (_hardCap > 0) {
@@ -155,7 +210,6 @@ abstract contract IDO is Ownable {
         start = _start;
         duration = _duration;
         whitelistOnly = _whitelistOnly;
-        tokenIdCurrency = _tokenIdCurrency;
         softCap = _softCap;
         hardCap = _hardCap;
         individualCap = _individualCap;
@@ -193,7 +247,7 @@ abstract contract IDO is Ownable {
         totalAmount += amount;
 
         emit Enroll(msg.sender, amount);
-        _transferCurrency(msg.sender, address(this), tokenIdCurrency, amount);
+        currency.safeTransferFrom(msg.sender, address(this), amount);
     }
 
     function withdraw() external notCancelled {
@@ -206,7 +260,7 @@ abstract contract IDO is Ownable {
 
         (uint256 tokenIdAsset, uint256 amountAsset) = getExchangeInfo(e.amount, e.lastTimestamp);
         emit Withdraw(msg.sender, tokenIdAsset, amountAsset);
-        _transferAsset(address(this), msg.sender, tokenIdAsset, amountAsset);
+        _offerAsset(msg.sender, tokenIdAsset, amountAsset);
     }
 
     function refund() external notCancelled {
@@ -219,7 +273,7 @@ abstract contract IDO is Ownable {
 
         uint256 _amount = e.amount;
         emit Refund(msg.sender, _amount);
-        _transferCurrency(address(this), msg.sender, tokenIdCurrency, _amount);
+        currency.safeTransfer(msg.sender, _amount);
     }
 
     function close(address to) external onlyOwner notCancelled {
@@ -229,9 +283,10 @@ abstract contract IDO is Ownable {
         closed = true;
         emit Close(to);
         if (totalAmount < softCap) {
-            _withdrawAssets(to);
+            _returnAssets(to);
         } else {
-            _collectFunds(to);
+            address _currency = currency;
+            _currency.safeTransferFrom(address(this), to, _currency.balanceOf(address(this)));
         }
     }
 }
