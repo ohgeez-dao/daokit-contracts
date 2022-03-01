@@ -17,21 +17,22 @@ contract ERC20IDO is BaseIDO {
     }
 
     /**
-     * @notice Transfers `amount` of ERC20 `currency` to `to` address. Parameter `tokenId` is ignored.
+     * @notice Transfers amount of ERC20 `asset` to `to` address. Parameter `tokenIds` is ignored.
      */
-    function _offerAsset(
+    function _offerAssets(
         address to,
-        uint256,
-        uint256 amount
-    ) internal override {
-        IERC20(asset).safeTransferFrom(address(this), to, amount);
+        uint256[] memory,
+        uint256[] memory amounts
+    ) internal virtual override {
+        for (uint256 i; i < amounts.length; i++) {
+            IERC20(asset).safeTransferFrom(address(this), to, amounts[i]);
+        }
     }
 
     /**
-     * @notice Transfers all balance of ERC20 `asset` from `this` contract to `to` address
+     * @notice Transfers all balance of ERC20 `asset` from `this` contract to `owner`
      */
-    function _returnAssets(address to, uint256[] memory) internal override {
-        address _currency = currency;
-        IERC20(_currency).safeTransfer(to, IERC20(_currency).balanceOf(address(this)));
+    function _returnAssets(uint256[] memory) internal virtual override {
+        IERC20(asset).safeTransfer(owner(), IERC20(asset).balanceOf(address(this)));
     }
 }
