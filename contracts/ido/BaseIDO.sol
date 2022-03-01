@@ -32,6 +32,10 @@ abstract contract BaseIDO is Ownable, Whitelist {
      */
     address public strategy;
     /**
+     * @notice Data used for IDO strategy contract.
+     */
+    bytes public strategyData;
+    /**
      * @notice If this sets to true, only whitelisted accounts can call `enroll()`
      */
     bool public whitelistOnly;
@@ -119,6 +123,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
         uint64 start;
         uint64 duration;
         address strategy;
+        bytes strategyData;
         bool whitelistOnly;
         uint256 softCap;
         uint256 hardCap;
@@ -208,25 +213,24 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     function _updateConfig(Config memory config) private {
-        require(asset != address(0), "DAOKIT: INVALID_ASSET");
-        require(block.timestamp < start, "DAOKIT: INVALID_START");
-        require(duration > 0, "DAOKIT: INVALID_START");
+        require(config.asset != address(0), "DAOKIT: INVALID_ASSET");
+        require(block.timestamp < config.start, "DAOKIT: INVALID_START");
+        require(config.duration > 0, "DAOKIT: INVALID_START");
         require(
-            ERC165Checker.supportsERC165(strategy) &&
-                ERC165Checker.supportsInterface(strategy, type(IIDOStrategy).interfaceId),
+            ERC165Checker.supportsERC165(config.strategy) &&
+                ERC165Checker.supportsInterface(config.strategy, type(IIDOStrategy).interfaceId),
             "DAOKIT: INVALIDSTRATEGY"
         );
-
-        if (hardCap > 0) {
-            require(softCap < hardCap, "DAOKIT: INVALID_HARD_CAP");
-        }
-        require(bytes(uri).length > 0, "DAOKIT: INVALID_URI");
+        require(IIDOStrategy(config.strategy).isValidData(config.strategyData), "DAOKIT: INVALID_STRATEGY_DATA");
+        require(config.hardCap == 0 || config.softCap < config.hardCap, "DAOKIT: INVALID_HARD_CAP");
+        require(bytes(config.uri).length > 0, "DAOKIT: INVALID_URI");
 
         currency = config.currency;
         asset = config.asset;
         start = config.start;
         duration = config.duration;
         strategy = config.strategy;
+        strategyData = config.strategyData;
         whitelistOnly = config.whitelistOnly;
         softCap = config.softCap;
         hardCap = config.hardCap;
@@ -236,7 +240,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
 
     /**
      * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
-     *  then only accounts added to the whitelist can
+     *  then only accounts in the whitelist can do it.
      */
     function enroll(uint256 amount) external payable notCancelled {
         if (whitelistOnly) {
@@ -306,7 +310,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
         require(!e.claimedOrRefunded, "DAOKIT: CLAIMED");
         e.claimedOrRefunded = true;
 
-        (tokenId, amount) = IIDOStrategy(strategy).claimableAsset(e.amount, e.timestamp);
+        (tokenId, amount) = IIDOStrategy(strategy).claimableAsset(strategyData, e.amount, e.timestamp);
         emit Claim(msg.sender, tokenId, amount);
     }
 
