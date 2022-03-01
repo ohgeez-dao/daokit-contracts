@@ -9,8 +9,12 @@ import "./BaseIDO.sol";
 /**
  * @notice In this IDO, the `asset` *MUST* conform to `IERC20`
  */
-abstract contract BaseERC20IDO is BaseIDO {
+contract ERC20IDO is BaseIDO {
     using SafeERC20 for IERC20;
+
+    constructor(address _owner, Config memory config) BaseIDO(_owner, config) {
+        // Empty
+    }
 
     /**
      * @notice Transfers `amount` of ERC20 `currency` to `to` address. Parameter `tokenId` is ignored.

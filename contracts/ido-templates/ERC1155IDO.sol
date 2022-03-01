@@ -18,7 +18,11 @@ interface IERC1155Mintable {
  * @notice In this IDO, the `asset` *MUST* conform to `IERC1155` (and optionally `IERC1155Mintable` for offering via
  *  minting).
  */
-abstract contract BaseERC1155IDO is BaseIDO {
+contract ERC1155IDO is BaseIDO {
+    constructor(address _owner, Config memory config) BaseIDO(_owner, config) {
+        // Empty
+    }
+
     /**
      * @notice If the owner of the `tokenId` exists then transfer it otherwise mint it to `to` address from `this`
      *  contract.

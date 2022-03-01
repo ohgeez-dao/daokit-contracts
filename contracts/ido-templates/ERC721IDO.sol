@@ -13,7 +13,11 @@ interface IERC721Mintable {
  * @notice In this IDO, the `asset` *MUST* conform to `IERC721` (and optionally `IERC721Mintable` for offering via
  *  minting).
  */
-abstract contract BaseERC721IDO is BaseIDO {
+contract ERC721IDO is BaseIDO {
+    constructor(address _owner, Config memory config) BaseIDO(_owner, config) {
+        // Empty
+    }
+
     /**
      * @notice If the owner of the `tokenId` exists then transfer it otherwise mint it to `to` address from `this`
      *  contract. Parameter `amount` is ignored.

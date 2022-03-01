@@ -3,7 +3,9 @@
 pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import "./libraries/FungibleTokens.sol";
+import "./strategies/interfaces/IIDOStrategy.sol";
 
 abstract contract BaseIDO is Ownable {
     using FungibleTokens for address;
@@ -24,6 +26,10 @@ abstract contract BaseIDO is Ownable {
      * @notice Duration in seconds
      */
     uint64 public duration;
+    /**
+     * @notice An IDO strategy contract that implements IIDOStrategy.
+     */
+    address public strategy;
     /**
      * @notice If this sets to true, only whitelisted accounts can call `enroll()`
      */
@@ -110,6 +116,19 @@ abstract contract BaseIDO is Ownable {
         _;
     }
 
+    struct Config {
+        address currency;
+        address asset;
+        uint64 start;
+        uint64 duration;
+        address strategy;
+        bool whitelistOnly;
+        uint256 softCap;
+        uint256 hardCap;
+        uint256 individualCap;
+        string uri;
+    }
+
     struct Enrollment {
         uint256 amount;
         uint64 lastTimestamp;
@@ -124,27 +143,10 @@ abstract contract BaseIDO is Ownable {
     event Refund(address indexed account, uint256 amount);
     event Close(address to);
 
-    constructor(
-        address _owner,
-        address _currency,
-        address _asset,
-        uint64 _start,
-        uint64 _duration,
-        bool _whitelistOnly,
-        uint256 _softCap,
-        uint256 _hardCap,
-        uint256 _individualCap,
-        string memory _uri
-    ) {
+    constructor(address _owner, Config memory config) {
         _transferOwnership(_owner);
-        _updateParams(_currency, _asset, _start, _duration, _whitelistOnly, _softCap, _hardCap, _individualCap, _uri);
+        _updateConfig(config);
     }
-
-    function claimableAsset(uint256 amount, uint64 lastTimestamp)
-        public
-        view
-        virtual
-        returns (uint256 tokenIdAsset, uint256 amountAsset);
 
     /**
      * @notice This is called when the `asset` is initially offered to `to` address for a given `tokenId` and `amount`
@@ -170,50 +172,37 @@ abstract contract BaseIDO is Ownable {
         _returnAssets(to, tokenIds);
     }
 
-    function updateParams(
-        address _currency,
-        address _asset,
-        uint64 _start,
-        uint64 _duration,
-        bool _whitelistOnly,
-        uint256 _softCap,
-        uint256 _hardCap,
-        uint256 _individualCap,
-        string memory _uri
-    ) public onlyOwner notCancelled {
+    function updateConfig(Config memory config) public onlyOwner notCancelled {
         require(block.timestamp < start, "DAOKIT: STARTED");
 
-        _updateParams(_currency, _asset, _start, _duration, _whitelistOnly, _softCap, _hardCap, _individualCap, _uri);
+        _updateConfig(config);
     }
 
-    function _updateParams(
-        address _currency,
-        address _asset,
-        uint64 _start,
-        uint64 _duration,
-        bool _whitelistOnly,
-        uint256 _softCap,
-        uint256 _hardCap,
-        uint256 _individualCap,
-        string memory _uri
-    ) internal {
-        require(_asset != address(0), "DAOKIT: INVALID_ASSET");
-        require(block.timestamp < _start, "DAOKIT: INVALID_START");
-        require(_duration > 0, "DAOKIT: INVALID_START");
-        if (_hardCap > 0) {
-            require(_softCap < _hardCap, "DAOKIT: INVALID_HARD_CAP");
-        }
-        require(bytes(_uri).length > 0, "DAOKIT: INVALID_URI");
+    function _updateConfig(Config memory config) internal {
+        require(asset != address(0), "DAOKIT: INVALID_ASSET");
+        require(block.timestamp < start, "DAOKIT: INVALID_START");
+        require(duration > 0, "DAOKIT: INVALID_START");
+        require(
+            ERC165Checker.supportsERC165(strategy) &&
+                ERC165Checker.supportsInterface(strategy, type(IIDOStrategy).interfaceId),
+            "DAOKIT: INVALIDSTRATEGY"
+        );
 
-        currency = _currency;
-        asset = _asset;
-        start = _start;
-        duration = _duration;
-        whitelistOnly = _whitelistOnly;
-        softCap = _softCap;
-        hardCap = _hardCap;
-        individualCap = _individualCap;
-        uri = _uri;
+        if (hardCap > 0) {
+            require(softCap < hardCap, "DAOKIT: INVALID_HARD_CAP");
+        }
+        require(bytes(uri).length > 0, "DAOKIT: INVALID_URI");
+
+        currency = config.currency;
+        asset = config.asset;
+        start = config.start;
+        duration = config.duration;
+        strategy = config.strategy;
+        whitelistOnly = config.whitelistOnly;
+        softCap = config.softCap;
+        hardCap = config.hardCap;
+        individualCap = config.individualCap;
+        uri = config.uri;
     }
 
     function addToWhitelist() external notCancelled {
@@ -258,7 +247,7 @@ abstract contract BaseIDO is Ownable {
         require(e.amount > 0, "DAOKIT: NOT_ENROLLED");
         require(!e.withdrawnOrRefunded, "DAOKIT: WITHDRAWN");
 
-        (uint256 tokenId, uint256 amount) = claimableAsset(e.amount, e.lastTimestamp);
+        (uint256 tokenId, uint256 amount) = IIDOStrategy(strategy).claimableAsset(e.amount, e.lastTimestamp);
         emit Claim(msg.sender, tokenId, amount);
         _offerAsset(msg.sender, tokenId, amount);
     }
