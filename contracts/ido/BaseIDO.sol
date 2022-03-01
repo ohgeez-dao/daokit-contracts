@@ -6,8 +6,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import "./libraries/FungibleTokens.sol";
 import "./strategies/interfaces/IIDOStrategy.sol";
+import "./Whitelist.sol";
 
-abstract contract BaseIDO is Ownable {
+abstract contract BaseIDO is Ownable, Whitelist {
     using FungibleTokens for address;
 
     /**
@@ -105,18 +106,12 @@ abstract contract BaseIDO is Ownable {
      */
     string public uri;
 
-    mapping(address => bool) public isWhitelisted;
     Enrollment[] public enrollments;
     uint256 public totalAmount;
     bool public cancelled;
     bool public closed;
 
     mapping(address => uint256) private _amounts;
-
-    modifier notCancelled {
-        require(!cancelled, "DAOKIT: CANCELLED");
-        _;
-    }
 
     struct Config {
         address currency;
@@ -138,9 +133,22 @@ abstract contract BaseIDO is Ownable {
         bool claimedOrRefunded;
     }
 
+    modifier notCancelled {
+        require(!cancelled, "DAOKIT: CANCELLED");
+        _;
+    }
+
+    modifier beforeStarted {
+        require(block.timestamp < start, "DAOKIT: STARTED");
+        _;
+    }
+
+    modifier afterFinished {
+        require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
+        _;
+    }
+
     event Cancel();
-    event AddToWhitelist(address indexed account);
-    event RemoveFromWhitelist(address indexed account);
     event Enroll(uint256 id, address indexed account, uint256 amount);
     event Claim(address indexed account, uint256 tokenId, uint256 amount);
     event Refund(address indexed account, uint256 amount);
@@ -166,13 +174,27 @@ abstract contract BaseIDO is Ownable {
      */
     function _returnAssets(uint256[] memory tokenIds) internal virtual;
 
+    function addToWhitelist() external beforeStarted {
+        _addToWhitelist();
+    }
+
+    function removeFromWhitelist() external beforeStarted {
+        _removeFromWhitelist();
+    }
+
+    function addMerkleRoot(bytes32 merkleRoot) external onlyOwner {
+        _addMerkleRoot(merkleRoot);
+    }
+
+    function removeMerkleRoot(bytes32 merkleRoot) external onlyOwner {
+        _removeMerkleRoot(merkleRoot);
+    }
+
     /**
      * @notice Only `owner` can cancel the IDO if it didn't start yet. All `asset`s of `tokenIds` that belongs to this
      *  contract will return to `owner`.
      */
-    function cancel(uint256[] memory tokenIds) external onlyOwner notCancelled {
-        require(block.timestamp < start, "DAOKIT: STARTED");
-
+    function cancel(uint256[] memory tokenIds) external onlyOwner notCancelled beforeStarted {
         cancelled = true;
         emit Cancel();
         _returnAssets(tokenIds);
@@ -181,9 +203,7 @@ abstract contract BaseIDO is Ownable {
     /**
      * @notice Only `owner` can update the config if it didn't start yet.
      */
-    function updateConfig(Config memory config) public onlyOwner notCancelled {
-        require(block.timestamp < start, "DAOKIT: STARTED");
-
+    function updateConfig(Config memory config) public onlyOwner notCancelled beforeStarted {
         _updateConfig(config);
     }
 
@@ -214,28 +234,35 @@ abstract contract BaseIDO is Ownable {
         uri = config.uri;
     }
 
-    function addToWhitelist() external notCancelled {
-        isWhitelisted[msg.sender] = true;
-
-        emit AddToWhitelist(msg.sender);
-    }
-
-    function removeFromWhitelist() external notCancelled {
-        isWhitelisted[msg.sender] = false;
-
-        emit RemoveFromWhitelist(msg.sender);
+    /**
+     * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
+     *  then only accounts added to the whitelist can
+     */
+    function enroll(uint256 amount) external payable notCancelled {
+        if (whitelistOnly) {
+            require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
+        }
+        _enroll(amount);
     }
 
     /**
      * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract.
      */
-    function enroll(uint256 amount) external payable notCancelled {
+    function enroll(
+        uint256 amount,
+        bytes32 merkleRoot,
+        bytes32[] calldata merkleProof
+    ) external payable notCancelled {
+        require(isValidMerkleRoot[merkleRoot], "DAOKIT: INVALID_ROOT");
+        require(verify(merkleRoot, keccak256(abi.encodePacked(msg.sender)), merkleProof), "DAOKIT: INVALID_PROOF");
+
+        _enroll(amount);
+    }
+
+    function _enroll(uint256 amount) private {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
         require(start <= block.timestamp, "DAOKIT: NOT_STARTED");
         require(block.timestamp < start + duration, "DAOKIT: FINISHED");
-        if (whitelistOnly) {
-            require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
-        }
         if (hardCap > 0) {
             require(totalAmount + amount <= hardCap, "DAOKIT: HARD_CAP_EXCEEDED");
         }
@@ -260,7 +287,9 @@ abstract contract BaseIDO is Ownable {
      * @notice Enrolled users can claim their `asset`s that correspond to `enrollmentIds` if the IDO finished
      *  successfully, which means it reached the soft cap if it exists.
      */
-    function claim(uint256[] calldata enrollmentIds) external notCancelled {
+    function claim(uint256[] calldata enrollmentIds) external notCancelled afterFinished {
+        require(softCap == 0 || softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
+
         uint256[] memory tokenIds = new uint256[](enrollmentIds.length);
         uint256[] memory amounts = new uint256[](enrollmentIds.length);
         for (uint256 i; i < enrollmentIds.length; i++) {
@@ -272,9 +301,6 @@ abstract contract BaseIDO is Ownable {
     }
 
     function _claim(uint256 id) private returns (uint256 tokenId, uint256 amount) {
-        require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
-        require(softCap == 0 || softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
-
         Enrollment storage e = enrollments[id];
         require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!e.claimedOrRefunded, "DAOKIT: CLAIMED");
@@ -288,16 +314,15 @@ abstract contract BaseIDO is Ownable {
      * @notice Enrolled users can get refunded with `enrollmentIds` if the IDO didn't finish  successfully, which means
      *  it didn't reach the soft cap.
      */
-    function refund(uint256[] memory enrollmentIds) external notCancelled {
+    function refund(uint256[] memory enrollmentIds) external notCancelled afterFinished {
+        require(softCap > 0 && totalAmount < softCap, "DAOKIT: SOFT_CAP_REACHED");
+
         for (uint256 i; i < enrollmentIds.length; i++) {
             _refund(enrollmentIds[i]);
         }
     }
 
     function _refund(uint256 id) private {
-        require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
-        require(softCap > 0 && totalAmount < softCap, "DAOKIT: SOFT_CAP_REACHED");
-
         Enrollment storage e = enrollments[id];
         require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!e.claimedOrRefunded, "DAOKIT: REFUNDED");
@@ -309,12 +334,11 @@ abstract contract BaseIDO is Ownable {
     }
 
     /**
-     * @notice Only `owner` can close the IDO after it finishes. If it was successful all the funds is sent to `owner,
+     * @notice Only `owner` can close the IDO after it finishes. If it was successful all the funds are sent to `owner,
      *  otherwise all `asset`s are returned to the `owner`.
      */
-    function close(uint256[] memory tokenIds) external onlyOwner notCancelled {
+    function close(uint256[] memory tokenIds) external onlyOwner notCancelled afterFinished {
         require(!closed, "DAOKIT: CLOSED");
-        require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
 
         closed = true;
         emit Close();
