@@ -141,12 +141,12 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     modifier beforeStarted {
-        require(block.timestamp < start, "DAOKIT: STARTED");
+        require(!started(), "DAOKIT: STARTED");
         _;
     }
 
     modifier afterFinished {
-        require(start + duration <= block.timestamp, "DAOKIT: NOT_FINISHED");
+        require(finished(), "DAOKIT: NOT_FINISHED");
         _;
     }
 
@@ -159,6 +159,18 @@ abstract contract BaseIDO is Ownable, Whitelist {
     constructor(address _owner, Config memory config) {
         _transferOwnership(_owner);
         _updateConfig(config);
+    }
+
+    function started() public view virtual returns (bool) {
+        return start <= block.timestamp;
+    }
+
+    function expired() public view virtual returns (bool) {
+        return start + duration <= block.timestamp;
+    }
+
+    function finished() public view virtual returns (bool) {
+        return expired() || (hardCap > 0 && hardCap <= totalAmount);
     }
 
     /**
@@ -264,25 +276,30 @@ abstract contract BaseIDO is Ownable, Whitelist {
 
     function _enroll(uint128 amount) internal virtual {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
-        require(start <= block.timestamp, "DAOKIT: NOT_STARTED");
-        require(block.timestamp < start + duration, "DAOKIT: FINISHED");
-        require(hardCap == 0 || totalAmount + amount <= hardCap, "DAOKIT: HARD_CAP_EXCEEDED");
-        require(
-            individualCap == 0 || _amounts[msg.sender] + amount <= individualCap,
-            "DAOKIT: INDIVIDUAL_CAP_EXCEEDED"
-        );
+        require(started(), "DAOKIT: NOT_STARTED");
+        require(!finished(), "DAOKIT: FINISHED");
+
+        uint128 amountAvailable = _amountAvailable(msg.sender, amount);
 
         uint256 id = enrollments.length;
         Enrollment storage e = enrollments.push();
-        e.amount = amount;
+        e.amount = amountAvailable;
         e.account = msg.sender;
         e.timestamp = uint64(block.timestamp);
 
-        totalAmount += amount;
-        _amounts[msg.sender] += amount;
+        totalAmount += amountAvailable;
+        _amounts[msg.sender] += amountAvailable;
 
-        emit Enroll(id, msg.sender, amount);
-        currency.safeTransferFrom(msg.sender, address(this), amount);
+        emit Enroll(id, msg.sender, amountAvailable);
+        currency.safeTransferFrom(msg.sender, address(this), amountAvailable);
+    }
+
+    function _amountAvailable(address account, uint128 amount) internal view virtual returns (uint128) {
+        uint128 lastAmount = _amounts[account];
+        if (individualCap > 0 && individualCap < lastAmount + amount) {
+            return individualCap - lastAmount;
+        }
+        return amount;
     }
 
     /**
