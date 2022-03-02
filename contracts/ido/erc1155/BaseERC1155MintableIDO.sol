@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.12;
 
-import "./ERC1155IDO.sol";
+import "./BaseERC1155IDO.sol";
 
 interface IERC1155Mintable {
     function mint(
@@ -16,8 +16,8 @@ interface IERC1155Mintable {
 /**
  * @notice In this IDO, the `asset` *MUST* conform to `IERC1155` and `IERC1155Mintable` for offering via minting.
  */
-contract ERC1155MintableIDO is ERC1155IDO {
-    constructor(address _owner, Config memory config) ERC1155IDO(_owner, config) {
+abstract contract BaseERC1155MintableIDO is BaseERC1155IDO {
+    constructor(address _owner, Config memory config) BaseERC1155IDO(_owner, config) {
         // Empty
     }
 

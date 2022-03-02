@@ -5,9 +5,11 @@ pragma solidity 0.8.12;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import "./libraries/FungibleTokens.sol";
-import "./strategies/interfaces/IIDOStrategy.sol";
 import "./Whitelist.sol";
 
+/**
+ * @notice Base IDO contract to support various asset standards (ERC20, ERC721, ERC1155 and more).
+ */
 abstract contract BaseIDO is Ownable, Whitelist {
     using FungibleTokens for address;
 
@@ -28,14 +30,6 @@ abstract contract BaseIDO is Ownable, Whitelist {
      */
     uint64 public duration;
     /**
-     * @notice An IDO strategy contract that implements IIDOStrategy.
-     */
-    address public strategy;
-    /**
-     * @notice Data used for IDO strategy contract.
-     */
-    bytes public strategyData;
-    /**
      * @notice If this sets to true, only whitelisted accounts can call `enroll()`
      */
     bool public whitelistOnly;
@@ -43,15 +37,15 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Minimum amount to raise. If `totalAmount` is less than this after the IDO finishes, raised amount will be
      * refunded to the participants using `refund()`.
      */
-    uint256 public softCap;
+    uint128 public softCap;
     /**
      * @notice Maximum amount to raise.
      */
-    uint256 public hardCap;
+    uint128 public hardCap;
     /**
      * @notice Maximum amount than an account can participate with.
      */
-    uint256 public individualCap;
+    uint128 public individualCap;
     /**
      * @notice A distinct Uniform Resource Identifier (URI) for the IDO. URIs are defined in RFC 3986. The URI
      * should point to a JSON file that conforms to the "IDO Metadata JSON Schema".
@@ -109,30 +103,33 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * }
      */
     string public uri;
+    /**
+     * @notice Additional data used for `claimableAsset()`
+     */
+    bytes public data;
 
     Enrollment[] public enrollments;
-    uint256 public totalAmount;
+    uint128 public totalAmount;
     bool public cancelled;
     bool public closed;
 
-    mapping(address => uint256) private _amounts;
+    mapping(address => uint128) private _amounts;
 
     struct Config {
         address currency;
         address asset;
         uint64 start;
         uint64 duration;
-        address strategy;
-        bytes strategyData;
         bool whitelistOnly;
-        uint256 softCap;
-        uint256 hardCap;
-        uint256 individualCap;
+        uint128 softCap;
+        uint128 hardCap;
+        uint128 individualCap;
         string uri;
+        bytes data;
     }
 
     struct Enrollment {
-        uint256 amount;
+        uint128 amount;
         address account;
         uint64 timestamp;
         bool claimedOrRefunded;
@@ -154,9 +151,9 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     event Cancel();
-    event Enroll(uint256 id, address indexed account, uint256 amount);
-    event Claim(address indexed account, uint256 tokenId, uint256 amount);
-    event Refund(address indexed account, uint256 amount);
+    event Enroll(uint256 id, address indexed account, uint128 amount);
+    event Claim(uint256 id, address indexed account, uint256 tokenId, uint256 amount);
+    event Refund(uint256 id, address indexed account, uint128 amount);
     event Close();
 
     constructor(address _owner, Config memory config) {
@@ -178,6 +175,15 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice This is called when the IDO was `cancelled` or `closed` so that assets need to be returned
      */
     function _returnAssets(uint256[] memory tokenIds) internal virtual;
+
+    /**
+     * @notice This should return the tokenId and amount that can be claimed for `enrollAmount` at `timestamp`
+     */
+    function _claimableAsset(uint128 enrollAmount, uint64 timestamp)
+        internal
+        view
+        virtual
+        returns (uint256 claimableTokenId, uint256 claimableAmount);
 
     function addToWhitelist() external beforeStarted {
         _addToWhitelist();
@@ -212,16 +218,10 @@ abstract contract BaseIDO is Ownable, Whitelist {
         _updateConfig(config);
     }
 
-    function _updateConfig(Config memory config) private {
+    function _updateConfig(Config memory config) internal virtual {
         require(config.asset != address(0), "DAOKIT: INVALID_ASSET");
         require(block.timestamp < config.start, "DAOKIT: INVALID_START");
-        require(config.duration > 0, "DAOKIT: INVALID_START");
-        require(
-            ERC165Checker.supportsERC165(config.strategy) &&
-                ERC165Checker.supportsInterface(config.strategy, type(IIDOStrategy).interfaceId),
-            "DAOKIT: INVALIDSTRATEGY"
-        );
-        require(IIDOStrategy(config.strategy).isValidData(config.strategyData), "DAOKIT: INVALID_STRATEGY_DATA");
+        require(config.duration > 0, "DAOKIT: INVALID_DURATION");
         require(config.hardCap == 0 || config.softCap < config.hardCap, "DAOKIT: INVALID_HARD_CAP");
         require(bytes(config.uri).length > 0, "DAOKIT: INVALID_URI");
 
@@ -229,20 +229,19 @@ abstract contract BaseIDO is Ownable, Whitelist {
         asset = config.asset;
         start = config.start;
         duration = config.duration;
-        strategy = config.strategy;
-        strategyData = config.strategyData;
         whitelistOnly = config.whitelistOnly;
         softCap = config.softCap;
         hardCap = config.hardCap;
         individualCap = config.individualCap;
         uri = config.uri;
+        data = config.data;
     }
 
     /**
      * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
      *  then only accounts in the whitelist can do it.
      */
-    function enroll(uint256 amount) external payable notCancelled {
+    function enroll(uint128 amount) external payable notCancelled {
         if (whitelistOnly) {
             require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
         }
@@ -253,7 +252,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract.
      */
     function enroll(
-        uint256 amount,
+        uint128 amount,
         bytes32 merkleRoot,
         bytes32[] calldata merkleProof
     ) external payable notCancelled {
@@ -263,16 +262,15 @@ abstract contract BaseIDO is Ownable, Whitelist {
         _enroll(amount);
     }
 
-    function _enroll(uint256 amount) private {
+    function _enroll(uint128 amount) internal virtual {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
         require(start <= block.timestamp, "DAOKIT: NOT_STARTED");
         require(block.timestamp < start + duration, "DAOKIT: FINISHED");
-        if (hardCap > 0) {
-            require(totalAmount + amount <= hardCap, "DAOKIT: HARD_CAP_EXCEEDED");
-        }
-        if (individualCap > 0) {
-            require(_amounts[msg.sender] + amount <= individualCap, "DAOKIT: INDIVIDUAL_CAP_EXCEEDED");
-        }
+        require(hardCap == 0 || totalAmount + amount <= hardCap, "DAOKIT: HARD_CAP_EXCEEDED");
+        require(
+            individualCap == 0 || _amounts[msg.sender] + amount <= individualCap,
+            "DAOKIT: INDIVIDUAL_CAP_EXCEEDED"
+        );
 
         uint256 id = enrollments.length;
         Enrollment storage e = enrollments.push();
@@ -304,14 +302,14 @@ abstract contract BaseIDO is Ownable, Whitelist {
         _offerAssets(msg.sender, tokenIds, amounts);
     }
 
-    function _claim(uint256 id) private returns (uint256 tokenId, uint256 amount) {
+    function _claim(uint256 id) internal virtual returns (uint256 tokenId, uint256 amount) {
         Enrollment storage e = enrollments[id];
         require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!e.claimedOrRefunded, "DAOKIT: CLAIMED");
         e.claimedOrRefunded = true;
 
-        (tokenId, amount) = IIDOStrategy(strategy).claimableAsset(strategyData, e.amount, e.timestamp);
-        emit Claim(msg.sender, tokenId, amount);
+        (tokenId, amount) = _claimableAsset(e.amount, e.timestamp);
+        emit Claim(id, msg.sender, tokenId, amount);
     }
 
     /**
@@ -326,14 +324,14 @@ abstract contract BaseIDO is Ownable, Whitelist {
         }
     }
 
-    function _refund(uint256 id) private {
+    function _refund(uint256 id) internal virtual {
         Enrollment storage e = enrollments[id];
         require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!e.claimedOrRefunded, "DAOKIT: REFUNDED");
         e.claimedOrRefunded = true;
 
-        uint256 _amount = e.amount;
-        emit Refund(msg.sender, _amount);
+        uint128 _amount = e.amount;
+        emit Refund(id, msg.sender, _amount);
         currency.safeTransfer(msg.sender, _amount);
     }
 

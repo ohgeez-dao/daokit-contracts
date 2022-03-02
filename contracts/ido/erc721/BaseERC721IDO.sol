@@ -3,12 +3,12 @@
 pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "./BaseIDO.sol";
+import "../BaseIDO.sol";
 
 /**
  * @notice In this IDO, the `asset` *MUST* conform to `IERC721`.
  */
-contract ERC721IDO is BaseIDO {
+abstract contract BaseERC721IDO is BaseIDO {
     constructor(address _owner, Config memory config) BaseIDO(_owner, config) {
         // Empty
     }
