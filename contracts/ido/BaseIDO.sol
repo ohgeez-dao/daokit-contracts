@@ -30,7 +30,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
      */
     uint64 public duration;
     /**
-     * @notice If this sets to true, only whitelisted accounts can call `enroll()`
+     * @notice If this sets to true, only whitelisted accounts can call `bid()`
      */
     bool public whitelistOnly;
     /**
@@ -104,11 +104,11 @@ abstract contract BaseIDO is Ownable, Whitelist {
      */
     string public uri;
     /**
-     * @notice Additional data used for `claimableAsset()`
+     * @notice Additional params used for inheriting contracts
      */
-    bytes public data;
+    bytes public params;
 
-    Enrollment[] public enrollments;
+    BidInfo[] public bids;
     uint128 public totalAmount;
     bool public cancelled;
     bool public closed;
@@ -125,10 +125,10 @@ abstract contract BaseIDO is Ownable, Whitelist {
         uint128 hardCap;
         uint128 individualCap;
         string uri;
-        bytes data;
+        bytes params;
     }
 
-    struct Enrollment {
+    struct BidInfo {
         uint128 amount;
         address account;
         uint64 timestamp;
@@ -151,7 +151,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     event Cancel();
-    event Enroll(uint256 id, address indexed account, uint128 amount);
+    event Bid(uint256 id, address indexed account, uint128 amount);
     event Claim(uint256 id, address indexed account, uint256 tokenId, uint256 amount);
     event Refund(uint256 id, address indexed account, uint128 amount);
     event Close();
@@ -189,9 +189,9 @@ abstract contract BaseIDO is Ownable, Whitelist {
     function _returnAssets(uint256[] memory tokenIds) internal virtual;
 
     /**
-     * @notice This should return the tokenId and amount that can be claimed for `enrollAmount` at `timestamp`
+     * @notice This should return the tokenId and amount that can be claimed for `bidAmount` at `timestamp`
      */
-    function _claimableAsset(uint128 enrollAmount, uint64 timestamp)
+    function _claimableAsset(uint128 bidAmount, uint64 timestamp)
         internal
         view
         virtual
@@ -246,24 +246,24 @@ abstract contract BaseIDO is Ownable, Whitelist {
         hardCap = config.hardCap;
         individualCap = config.individualCap;
         uri = config.uri;
-        data = config.data;
+        params = config.params;
     }
 
     /**
-     * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
+     * @notice Anyone can bid by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
      *  then only accounts in the whitelist can do it.
      */
-    function enroll(uint128 amount) external payable notCancelled {
+    function bid(uint128 amount) external payable notCancelled {
         if (whitelistOnly) {
             require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
         }
-        _enroll(amount);
+        _bid(amount);
     }
 
     /**
-     * @notice Anyone can enroll by sending a certain `amount` of `currency` to this contract.
+     * @notice Anyone can bid by sending a certain `amount` of `currency` to this contract.
      */
-    function enroll(
+    function bid(
         uint128 amount,
         bytes32 merkleRoot,
         bytes32[] calldata merkleProof
@@ -271,26 +271,26 @@ abstract contract BaseIDO is Ownable, Whitelist {
         require(isValidMerkleRoot[merkleRoot], "DAOKIT: INVALID_ROOT");
         require(verify(merkleRoot, keccak256(abi.encodePacked(msg.sender)), merkleProof), "DAOKIT: INVALID_PROOF");
 
-        _enroll(amount);
+        _bid(amount);
     }
 
-    function _enroll(uint128 amount) internal virtual {
+    function _bid(uint128 amount) internal virtual {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
         require(started(), "DAOKIT: NOT_STARTED");
         require(!finished(), "DAOKIT: FINISHED");
 
         uint128 amountAvailable = _amountAvailable(msg.sender, amount);
 
-        uint256 id = enrollments.length;
-        Enrollment storage e = enrollments.push();
-        e.amount = amountAvailable;
-        e.account = msg.sender;
-        e.timestamp = uint64(block.timestamp);
+        uint256 id = bids.length;
+        BidInfo storage info = bids.push();
+        info.amount = amountAvailable;
+        info.account = msg.sender;
+        info.timestamp = uint64(block.timestamp);
 
         totalAmount += amountAvailable;
         _amounts[msg.sender] += amountAvailable;
 
-        emit Enroll(id, msg.sender, amountAvailable);
+        emit Bid(id, msg.sender, amountAvailable);
         currency.safeTransferFrom(msg.sender, address(this), amountAvailable);
     }
 
@@ -303,16 +303,16 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     /**
-     * @notice Enrolled users can claim their `asset`s that correspond to `enrollmentIds` if the IDO finished
+     * @notice Users who bid can claim their `asset`s that correspond to `bidIds` if the IDO finished
      *  successfully, which means it reached the soft cap if it exists.
      */
-    function claim(uint256[] calldata enrollmentIds) external notCancelled afterFinished {
+    function claim(uint256[] calldata bidIds) external notCancelled afterFinished {
         require(softCap == 0 || softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
 
-        uint256[] memory tokenIds = new uint256[](enrollmentIds.length);
-        uint256[] memory amounts = new uint256[](enrollmentIds.length);
-        for (uint256 i; i < enrollmentIds.length; i++) {
-            (uint256 tokenId, uint256 amount) = _claim(enrollmentIds[i]);
+        uint256[] memory tokenIds = new uint256[](bidIds.length);
+        uint256[] memory amounts = new uint256[](bidIds.length);
+        for (uint256 i; i < bidIds.length; i++) {
+            (uint256 tokenId, uint256 amount) = _claim(bidIds[i]);
             tokenIds[i] = tokenId;
             amounts[i] = amount;
         }
@@ -320,34 +320,34 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     function _claim(uint256 id) internal virtual returns (uint256 tokenId, uint256 amount) {
-        Enrollment storage e = enrollments[id];
-        require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
-        require(!e.claimedOrRefunded, "DAOKIT: CLAIMED");
-        e.claimedOrRefunded = true;
+        BidInfo storage info = bids[id];
+        require(info.account == msg.sender, "DAOKIT: FORBIDDEN");
+        require(!info.claimedOrRefunded, "DAOKIT: CLAIMED");
+        info.claimedOrRefunded = true;
 
-        (tokenId, amount) = _claimableAsset(e.amount, e.timestamp);
+        (tokenId, amount) = _claimableAsset(info.amount, info.timestamp);
         emit Claim(id, msg.sender, tokenId, amount);
     }
 
     /**
-     * @notice Enrolled users can get refunded with `enrollmentIds` if the IDO didn't finish  successfully, which means
+     * @notice Users who bid can get refunded with `bidIds` if the IDO didn't finish  successfully, which means
      *  it didn't reach the soft cap.
      */
-    function refund(uint256[] memory enrollmentIds) external notCancelled afterFinished {
+    function refund(uint256[] memory bidIds) external notCancelled afterFinished {
         require(softCap > 0 && totalAmount < softCap, "DAOKIT: SOFT_CAP_REACHED");
 
-        for (uint256 i; i < enrollmentIds.length; i++) {
-            _refund(enrollmentIds[i]);
+        for (uint256 i; i < bidIds.length; i++) {
+            _refund(bidIds[i]);
         }
     }
 
     function _refund(uint256 id) internal virtual {
-        Enrollment storage e = enrollments[id];
-        require(e.account == msg.sender, "DAOKIT: FORBIDDEN");
-        require(!e.claimedOrRefunded, "DAOKIT: REFUNDED");
-        e.claimedOrRefunded = true;
+        BidInfo storage info = bids[id];
+        require(info.account == msg.sender, "DAOKIT: FORBIDDEN");
+        require(!info.claimedOrRefunded, "DAOKIT: REFUNDED");
+        info.claimedOrRefunded = true;
 
-        uint128 _amount = e.amount;
+        uint128 _amount = info.amount;
         emit Refund(id, msg.sender, _amount);
         currency.safeTransfer(msg.sender, _amount);
     }

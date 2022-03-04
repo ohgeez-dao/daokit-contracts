@@ -16,35 +16,35 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
     /**
      * @notice How many assets will be exchange per one currency token in the beginning and in the end
      */
-    function ratios() public view returns (uint64 initialRatio, uint64 reserveRatio) {
-        return abi.decode(data, (uint64, uint64));
+    function parseParams() public view returns (uint64 initialRatio, uint64 reserveRatio) {
+        return abi.decode(params, (uint64, uint64));
     }
 
     function finished() public view override returns (bool) {
         return expired() || hardCap <= _weightedTotalAmount();
     }
 
-    function _claimableAsset(uint128 enrollAmount, uint64)
+    function _claimableAsset(uint128 bidAmount, uint64)
         internal
         view
         override
         returns (uint256 claimableTokenId, uint256 claimableAmount)
     {
-        return (0, (uint256(enrollAmount) * finalRatio) / RATIO_PRECISION);
+        return (0, (uint256(bidAmount) * finalRatio) / RATIO_PRECISION);
     }
 
     function _updateConfig(Config memory config) internal override {
         require(config.hardCap > 0, "DAOKIT: HARD_CAP_TOO_LOW");
 
-        (uint64 initialRatio, uint64 reserveRatio) = abi.decode(config.data, (uint64, uint64));
+        (uint64 initialRatio, uint64 reserveRatio) = abi.decode(config.params, (uint64, uint64));
         require(0 < initialRatio, "DAOKIT: INVALID_INITIAL_RATIO");
         require(initialRatio < reserveRatio, "DAOKIT: INVALID_RESERVE_RATIO");
 
         super._updateConfig(config);
     }
 
-    function _enroll(uint128 amount) internal override {
-        super._enroll(amount);
+    function _bid(uint128 amount) internal override {
+        super._bid(amount);
 
         finalRatio = _ratioAt(uint64(block.timestamp));
     }
@@ -67,7 +67,7 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
     }
 
     function _ratioAt(uint64 timestamp) private view returns (uint64) {
-        (uint64 initialRatio, uint64 reserveRatio) = ratios();
+        (uint64 initialRatio, uint64 reserveRatio) = parseParams();
         if (timestamp <= start) {
             return initialRatio;
         } else if (start + duration <= timestamp) {
