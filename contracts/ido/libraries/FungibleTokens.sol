@@ -28,23 +28,4 @@ library FungibleTokens {
             IERC20(token).safeTransfer(to, amount);
         }
     }
-
-    function safeTransferFrom(
-        address token,
-        address from,
-        address to,
-        uint256 amount
-    ) internal {
-        if (token == address(0)) {
-            if (from == address(this)) {
-                Address.sendValue(payable(to), amount);
-            } else if (to == address(this)) {
-                require(msg.value == amount, "DAOKIT: INSUFFICIENT_ETH");
-            } else {
-                revert("DAOKIT: UNREACHABLE");
-            }
-        } else {
-            IERC20(token).safeTransferFrom(from, to, amount);
-        }
-    }
 }

@@ -4,6 +4,8 @@ pragma solidity 0.8.12;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./libraries/FungibleTokens.sol";
 import "./Whitelist.sol";
 
@@ -11,6 +13,7 @@ import "./Whitelist.sol";
  * @notice Base IDO contract to support various asset standards (ERC20, ERC721, ERC1155 and more).
  */
 abstract contract BaseIDO is Ownable, Whitelist {
+    using SafeERC20 for IERC20;
     using FungibleTokens for address;
 
     /**
@@ -291,7 +294,16 @@ abstract contract BaseIDO is Ownable, Whitelist {
         _amounts[msg.sender] += amountAvailable;
 
         emit Bid(id, msg.sender, amountAvailable);
-        currency.safeTransferFrom(msg.sender, address(this), amountAvailable);
+
+        address _currency = currency;
+        if (_currency == address(0)) {
+            require(amountAvailable <= msg.value, "DAOKIT: INSUFFICIENT_ETH");
+            if (amountAvailable < msg.value) {
+                Address.sendValue(payable(msg.sender), msg.value - amountAvailable);
+            }
+        } else {
+            IERC20(_currency).safeTransferFrom(msg.sender, address(this), amountAvailable);
+        }
     }
 
     function _amountAvailable(address account, uint128 amount) internal view virtual returns (uint128) {
