@@ -37,7 +37,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
      */
     bool public whitelistOnly;
     /**
-     * @notice Minimum amount to raise. If `totalAmount` is less than this after the IDO finishes, raised amount will be
+     * @notice Minimum amount to raise. If `totalRaised` is less than this after the IDO finishes, raised amount will be
      * refunded to the participants using `refund()`.
      */
     uint128 public softCap;
@@ -112,7 +112,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
     bytes public params;
 
     BidInfo[] public bids;
-    uint128 public totalAmount;
+    uint128 public totalRaised;
     bool public cancelled;
     bool public closed;
 
@@ -178,12 +178,12 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @param tokenId used if there are multiple rounds of auctions for NFTs
      */
     function finished(uint256 tokenId) public view virtual returns (bool) {
-        return expired(tokenId) || (hardCap > 0 && hardCap <= totalAmount);
+        return expired(tokenId) || (hardCap > 0 && hardCap <= totalRaised);
     }
 
     /**
      * @notice This is called when the `asset` is initially offered to `to` address for a given `tokenId` and `amount`
-     * only if the IDO was successful, when `totalAmount` > `hardCap`.
+     * only if the IDO was successful, when `totalRaised` > `hardCap`.
      */
     function _offerAssets(
         address to,
@@ -288,31 +288,23 @@ abstract contract BaseIDO is Ownable, Whitelist {
         require(started(tokenId), "DAOKIT: NOT_STARTED");
         require(!finished(tokenId), "DAOKIT: FINISHED");
 
-        uint128 amountAvailable = _amountAvailable(msg.sender, amount);
+        uint128 biddable = _biddableCurrency(msg.sender, amount);
 
         BidInfo storage info = bids.push();
         info.tokenId = tokenId;
-        info.amount = amountAvailable;
+        info.amount = biddable;
         info.account = msg.sender;
         info.timestamp = uint64(block.timestamp);
 
-        totalAmount += amountAvailable;
-        _amounts[msg.sender] += amountAvailable;
+        totalRaised += biddable;
+        _amounts[msg.sender] += biddable;
 
-        emit Bid(id, msg.sender, tokenId, amountAvailable);
+        emit Bid(id, msg.sender, tokenId, biddable);
 
-        address _currency = currency;
-        if (_currency == address(0)) {
-            require(amountAvailable <= msg.value, "DAOKIT: INSUFFICIENT_ETH");
-            if (amountAvailable < msg.value) {
-                Address.sendValue(payable(msg.sender), msg.value - amountAvailable);
-            }
-        } else {
-            IERC20(_currency).safeTransferFrom(msg.sender, address(this), amountAvailable);
-        }
+        _transferCurrency(biddable);
     }
 
-    function _amountAvailable(address account, uint128 amount) internal view virtual returns (uint128) {
+    function _biddableCurrency(address account, uint128 amount) internal view virtual returns (uint128) {
         uint128 lastAmount = _amounts[account];
         if (individualCap > 0 && individualCap < lastAmount + amount) {
             return individualCap - lastAmount;
@@ -320,12 +312,24 @@ abstract contract BaseIDO is Ownable, Whitelist {
         return amount;
     }
 
+    function _transferCurrency(uint128 amount) internal {
+        address _currency = currency;
+        if (_currency == address(0)) {
+            require(amount <= msg.value, "DAOKIT: INSUFFICIENT_ETH");
+            if (amount < msg.value) {
+                Address.sendValue(payable(msg.sender), msg.value - amount);
+            }
+        } else {
+            IERC20(_currency).safeTransferFrom(msg.sender, address(this), amount);
+        }
+    }
+
     /**
      * @notice Users who bid can claim their `asset`s that correspond to `bidIds` if the IDO finished
      *  successfully, which means it reached the soft cap if it exists.
      */
     function claim(uint256[] calldata bidIds) external notCancelled {
-        require(softCap == 0 || softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
+        require(softCap == 0 || softCap <= totalRaised, "DAOKIT: SOFT_CAP_NOT_REACHED");
 
         uint256[] memory tokenIds = new uint256[](bidIds.length);
         uint256[] memory amounts = new uint256[](bidIds.length);
@@ -356,7 +360,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
      *  it didn't reach the soft cap.
      */
     function refund(uint256[] memory bidIds) external notCancelled {
-        require(softCap > 0 && totalAmount < softCap, "DAOKIT: SOFT_CAP_REACHED");
+        require(softCap > 0 && totalRaised < softCap, "DAOKIT: SOFT_CAP_REACHED");
 
         for (uint256 i; i < bidIds.length; i++) {
             _refund(bidIds[i]);
@@ -387,7 +391,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
 
         closed = true;
         emit Close();
-        if (softCap > 0 && totalAmount < softCap) {
+        if (softCap > 0 && totalRaised < softCap) {
             // If it failed
             _returnAssets(tokenIds);
         } else {

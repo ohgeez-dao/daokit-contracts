@@ -30,6 +30,7 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
 
     function _updateConfig(Config memory config) internal override {
         require(config.hardCap > 0, "DAOKIT: HARD_CAP_TOO_LOW");
+        require(config.individualCap == 0, "DAOKIT: INDIVIDUAL_CAP_NOT_ALLOWED");
 
         (uint64 initialRatio, uint64 reserveRatio) = abi.decode(config.params, (uint64, uint64));
         require(0 < initialRatio, "DAOKIT: INVALID_INITIAL_RATIO");
@@ -43,26 +44,26 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
         uint256 tokenId,
         uint128 amount
     ) internal override {
-        super._bid(id, tokenId, amount);
-
         finalRatio = _ratioAt(uint64(block.timestamp));
+
+        super._bid(id, tokenId, amount);
     }
 
-    function _amountAvailable(address account, uint128 amount) internal view override returns (uint128) {
-        uint128 amountAvailable = super._amountAvailable(account, amount);
+    function _biddableCurrency(address account, uint128 amount) internal view override returns (uint128) {
+        uint128 biddable = super._biddableCurrency(account, amount);
         uint128 weightedTotalAmount = _weightedTotalAmount();
         uint128 _hardCap = hardCap;
         if (_hardCap <= weightedTotalAmount) {
             return 0;
-        } else if (_hardCap - weightedTotalAmount < amountAvailable) {
-            return amountAvailable - _hardCap + weightedTotalAmount;
+        } else if (_hardCap - weightedTotalAmount < biddable) {
+            return biddable - _hardCap + weightedTotalAmount;
         } else {
-            return amountAvailable;
+            return biddable;
         }
     }
 
     function _weightedTotalAmount() private view returns (uint128) {
-        return uint128((uint256(totalAmount) * _ratioAt(uint64(block.timestamp))) / RATIO_PRECISION);
+        return uint128((uint256(totalRaised) * _ratioAt(uint64(block.timestamp))) / RATIO_PRECISION);
     }
 
     function _ratioAt(uint64 timestamp) private view returns (uint64) {

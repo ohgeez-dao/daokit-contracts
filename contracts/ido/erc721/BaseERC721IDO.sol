@@ -13,6 +13,14 @@ abstract contract BaseERC721IDO is BaseIDO {
         // Empty
     }
 
+    function _updateConfig(Config memory config) internal virtual override {
+        require(config.softCap == 0, "DAOKIT: INVALID_SOFT_CAP");
+        require(config.hardCap == 0, "DAOKIT: INVALID_HARD_CAP");
+        require(config.individualCap == 0, "DAOKIT: INVALID_INDIVIDUAL_CAP");
+
+        super._updateConfig(config);
+    }
+
     /**
      * @notice Transfers `asset`s of `tokenIds` to `to` address from `this` contract. Parameter `amounts` is ignored.
      */
