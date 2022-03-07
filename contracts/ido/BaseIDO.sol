@@ -136,6 +136,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
         address account;
         uint64 timestamp;
         bool claimedOrRefunded;
+        bytes data; // TODO
     }
 
     modifier notCancelled {
@@ -162,6 +163,8 @@ abstract contract BaseIDO is Ownable, Whitelist {
     constructor(address _owner, Config memory config) {
         _transferOwnership(_owner);
         _updateConfig(config);
+
+        bids.push(); // Dummy BidInfo for not using id=0
     }
 
     function started() public view virtual returns (bool) {
@@ -260,7 +263,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
         if (whitelistOnly) {
             require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
         }
-        _bid(amount);
+        _bid(bids.length, amount);
     }
 
     /**
@@ -274,17 +277,16 @@ abstract contract BaseIDO is Ownable, Whitelist {
         require(isValidMerkleRoot[merkleRoot], "DAOKIT: INVALID_ROOT");
         require(verify(merkleRoot, keccak256(abi.encodePacked(msg.sender)), merkleProof), "DAOKIT: INVALID_PROOF");
 
-        _bid(amount);
+        _bid(bids.length, amount);
     }
 
-    function _bid(uint128 amount) internal virtual {
+    function _bid(uint256 id, uint128 amount) internal virtual {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
         require(started(), "DAOKIT: NOT_STARTED");
         require(!finished(), "DAOKIT: FINISHED");
 
         uint128 amountAvailable = _amountAvailable(msg.sender, amount);
 
-        uint256 id = bids.length;
         BidInfo storage info = bids.push();
         info.amount = amountAvailable;
         info.account = msg.sender;
@@ -324,21 +326,21 @@ abstract contract BaseIDO is Ownable, Whitelist {
         uint256[] memory tokenIds = new uint256[](bidIds.length);
         uint256[] memory amounts = new uint256[](bidIds.length);
         for (uint256 i; i < bidIds.length; i++) {
-            (uint256 tokenId, uint256 amount) = _claim(bidIds[i]);
+            uint256 id = bidIds[i];
+            (uint256 tokenId, uint256 amount) = _claim(id, bids[id]);
             tokenIds[i] = tokenId;
             amounts[i] = amount;
         }
         _offerAssets(msg.sender, tokenIds, amounts);
     }
 
-    function _claim(uint256 id) internal virtual returns (uint256 tokenId, uint256 amount) {
-        BidInfo storage info = bids[id];
+    function _claim(uint256 bidId, BidInfo storage info) internal virtual returns (uint256 tokenId, uint256 amount) {
         require(info.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!info.claimedOrRefunded, "DAOKIT: CLAIMED");
         info.claimedOrRefunded = true;
 
         (tokenId, amount) = _claimableAsset(info.amount, info.timestamp);
-        emit Claim(id, msg.sender, tokenId, amount);
+        emit Claim(bidId, msg.sender, tokenId, amount);
     }
 
     /**

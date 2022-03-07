@@ -43,8 +43,8 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
         super._updateConfig(config);
     }
 
-    function _bid(uint128 amount) internal override {
-        super._bid(amount);
+    function _bid(uint256 id, uint128 amount) internal override {
+        super._bid(id, amount);
 
         finalRatio = _ratioAt(uint64(block.timestamp));
     }
