@@ -83,9 +83,9 @@ contract ConcurrentDutchAuctionERC721IDO is BaseERC721IDO {
         } else if (start + duration <= timestamp) {
             return reservePrice;
         } else {
-            uint128 delta = reservePrice - initialPrice;
+            uint128 delta = initialPrice - reservePrice;
             uint128 elapsed = timestamp - start;
-            return initialPrice + (delta * elapsed) / duration;
+            return reservePrice + (delta * elapsed) / duration;
         }
     }
 }
