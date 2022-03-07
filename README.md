@@ -4,7 +4,7 @@
 
 This project provides a proper set of tools to solve problems of current DAOs.
 
-## Problems I faced
+## Problems of current DAOs
 1. Treasury is controlled by only a few people (core team)
 2. Salary/grant payout from treasury isn’t managed transparently
 3. Progress of each sub-project isn’t tracked on-chain

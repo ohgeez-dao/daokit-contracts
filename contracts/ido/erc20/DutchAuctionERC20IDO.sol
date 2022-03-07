@@ -20,17 +20,12 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
         return abi.decode(params, (uint64, uint64));
     }
 
-    function finished() public view override returns (bool) {
-        return expired() || hardCap <= _weightedTotalAmount();
+    function finished(uint256 tokenId) public view override returns (bool) {
+        return expired(tokenId) || hardCap <= _weightedTotalAmount();
     }
 
-    function _claimableAsset(uint128 bidAmount, uint64)
-        internal
-        view
-        override
-        returns (uint256 claimableTokenId, uint256 claimableAmount)
-    {
-        return (0, (uint256(bidAmount) * finalRatio) / RATIO_PRECISION);
+    function _claimableAsset(uint256, BidInfo memory info) internal view override returns (uint256 amount) {
+        return (uint256(info.amount) * finalRatio) / RATIO_PRECISION;
     }
 
     function _updateConfig(Config memory config) internal override {
@@ -43,8 +38,12 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
         super._updateConfig(config);
     }
 
-    function _bid(uint256 id, uint128 amount) internal override {
-        super._bid(id, amount);
+    function _bid(
+        uint256 id,
+        uint256 tokenId,
+        uint128 amount
+    ) internal override {
+        super._bid(id, tokenId, amount);
 
         finalRatio = _ratioAt(uint64(block.timestamp));
     }

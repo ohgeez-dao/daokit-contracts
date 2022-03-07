@@ -22,16 +22,8 @@ contract FixedPriceERC20IDO is BaseERC20IDO {
         return abi.decode(params, (uint64));
     }
 
-    /**
-     * @notice Param `timestamp` is ignored.
-     */
-    function _claimableAsset(uint128 bidAmount, uint64)
-        internal
-        view
-        override
-        returns (uint256 claimableTokenId, uint256 claimableAmount)
-    {
-        return (0, (bidAmount * parseParams()) / RATIO_PRECISION);
+    function _claimableAsset(uint256, BidInfo memory info) internal view override returns (uint256 amount) {
+        return (info.amount * parseParams()) / RATIO_PRECISION;
     }
 
     function _updateConfig(Config memory config) internal override {

@@ -8,11 +8,12 @@ import "./BaseERC721IDO.sol";
  * @notice This ERC721 IDO schedules periodic english auctions for NFTs starting from tokenId 0
  */
 contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
-    uint256 public constant INVALID_TOKEN_ID = type(uint256).max;
+    mapping(uint256 => Auction) public auctions;
 
-    mapping(uint256 => uint64) public deadline;
-    mapping(uint256 => uint256) public currentBidId;
-    uint256 internal _tokenId;
+    struct Auction {
+        uint64 deadline;
+        uint256 currentBidId;
+    }
 
     constructor(address _owner, Config memory config) BaseERC721IDO(_owner, config) {
         // Empty
@@ -40,59 +41,52 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
         return abi.decode(params, (uint128, uint64, uint56, uint8, uint256));
     }
 
-    function currentTokenId() public view returns (uint256) {
-        uint256 tokenId = _tokenId;
-        return tokenId + deadline[tokenId] < uint64(block.timestamp) ? 1 : 0;
-    }
+    function _bid(
+        uint256 id,
+        uint256 tokenId,
+        uint128 amount
+    ) internal override {
+        (uint128 reservePrice, uint64 duration, uint56 extension, uint8 minBidIncrement, ) = parseParams();
 
-    function _bid(uint256 id, uint128 amount) internal override {
-        (uint128 reservePrice, uint64 auction, uint56 extension, uint8 minBidIncrement, ) = parseParams();
-
-        uint64 timestamp = uint64(block.timestamp);
-        uint256 tokenId = _tokenId;
-        if (deadline[tokenId] < timestamp) {
-            tokenId += 1;
-            _tokenId = tokenId;
-            deadline[tokenId] = timestamp + auction;
-        }
-        uint256 _currentBidId = currentBidId[tokenId];
+        uint64 _now = uint64(block.timestamp);
+        Auction storage auction = auctions[tokenId];
+        uint256 _currentBidId = auction.currentBidId;
+        auction.currentBidId = id;
         if (_currentBidId == 0) {
             // No bid yet for currentTokenId
             require(reservePrice <= amount, "DAOKIT: UNDERBIDDEN");
+
+            auction.deadline = start + duration;
         } else {
+            require(_now < auction.deadline, "DAOKIT: EXPIRED");
+
             BidInfo storage info = bids[_currentBidId];
             require((info.amount * minBidIncrement) / 100 <= amount, "DAOKIT: UNDERBIDDEN");
 
-            if (deadline[tokenId] - extension < timestamp) {
-                deadline[tokenId] = timestamp + extension;
+            if (auction.deadline - extension < _now) {
+                auction.deadline = _now + extension;
             }
         }
 
-        currentBidId[tokenId] = id;
-
-        super._bid(id, amount);
+        super._bid(id, tokenId, amount);
     }
 
-    function _claim(uint256 bidId, BidInfo storage info) internal override returns (uint256 tokenId, uint256 amount) {
-        require(currentBidId[_tokenId] == bidId, "DAOKIT: INVALID_BID");
-        // TODO: check if tokenId's auction finished
+    function _claimableAsset(uint256 bidId, BidInfo memory info) internal view override returns (uint256 amount) {
+        Auction storage auction = auctions[info.tokenId];
+        require(auction.deadline < uint64(block.timestamp), "DAOKIT: AUCTION_NOT_FINISHED");
+        require(auction.currentBidId == bidId, "DAOKIT: INVALID_BID");
 
-        return super._claim(bidId, info);
-    }
-
-    /**
-     * @notice Param `bidAmount` is ignored.
-     */
-    function _claimableAsset(uint128, uint64 timestamp)
-        internal
-        view
-        override
-        returns (uint256 claimableTokenId, uint256 claimableAmount)
-    {
-        return (currentBidId[_tokenId], 0); // TODO
+        return 1;
     }
 
     function _updateConfig(Config memory config) internal override {
+        (, uint64 auctionDuration, , uint8 minBidIncrement, ) = abi.decode(
+            config.params,
+            (uint128, uint64, uint56, uint8, uint256)
+        );
+        require(auctionDuration > 0, "DAOKIT: INVALID_AUCTION_DURATION");
+        require(minBidIncrement > 0, "DAOKIT: INVALID_MIN_BID_INCREMENT");
+
         super._updateConfig(config);
     }
 }

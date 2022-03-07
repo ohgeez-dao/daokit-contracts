@@ -132,11 +132,11 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     struct BidInfo {
+        uint256 tokenId;
         uint128 amount;
         address account;
         uint64 timestamp;
         bool claimedOrRefunded;
-        bytes data; // TODO
     }
 
     modifier notCancelled {
@@ -145,19 +145,14 @@ abstract contract BaseIDO is Ownable, Whitelist {
     }
 
     modifier beforeStarted {
-        require(!started(), "DAOKIT: STARTED");
-        _;
-    }
-
-    modifier afterFinished {
-        require(finished(), "DAOKIT: NOT_FINISHED");
+        require(!started(0), "DAOKIT: STARTED");
         _;
     }
 
     event Cancel();
-    event Bid(uint256 id, address indexed account, uint128 amount);
-    event Claim(uint256 id, address indexed account, uint256 tokenId, uint256 amount);
-    event Refund(uint256 id, address indexed account, uint128 amount);
+    event Bid(uint256 id, address indexed account, uint256 indexed tokenId, uint128 amount);
+    event Claim(uint256 id, address indexed account, uint256 indexed tokenId, uint256 amount);
+    event Refund(uint256 id, address indexed account, uint256 indexed tokenId, uint128 amount);
     event Close();
 
     constructor(address _owner, Config memory config) {
@@ -167,16 +162,23 @@ abstract contract BaseIDO is Ownable, Whitelist {
         bids.push(); // Dummy BidInfo for not using id=0
     }
 
-    function started() public view virtual returns (bool) {
+    function started(
+        uint256 /*tokenId*/
+    ) public view virtual returns (bool) {
         return start <= block.timestamp;
     }
 
-    function expired() public view virtual returns (bool) {
+    function expired(
+        uint256 /*tokenId*/
+    ) public view virtual returns (bool) {
         return start + duration <= block.timestamp;
     }
 
-    function finished() public view virtual returns (bool) {
-        return expired() || (hardCap > 0 && hardCap <= totalAmount);
+    /**
+     * @param tokenId used if there are multiple rounds of auctions for NFTs
+     */
+    function finished(uint256 tokenId) public view virtual returns (bool) {
+        return expired(tokenId) || (hardCap > 0 && hardCap <= totalAmount);
     }
 
     /**
@@ -195,13 +197,9 @@ abstract contract BaseIDO is Ownable, Whitelist {
     function _returnAssets(uint256[] memory tokenIds) internal virtual;
 
     /**
-     * @notice This should return the tokenId and amount that can be claimed for `bidAmount` at `timestamp`
+     * @notice This should return the amount that can be claimed for `bidId` and `info`
      */
-    function _claimableAsset(uint128 bidAmount, uint64 timestamp)
-        internal
-        view
-        virtual
-        returns (uint256 claimableTokenId, uint256 claimableAmount);
+    function _claimableAsset(uint256 bidId, BidInfo memory info) internal view virtual returns (uint256 amount);
 
     function addToWhitelist() external beforeStarted {
         _addToWhitelist();
@@ -259,17 +257,18 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Anyone can bid by sending a certain `amount` of `currency` to this contract. If `whitelistOnly` is on,
      *  then only accounts in the whitelist can do it.
      */
-    function bid(uint128 amount) external payable notCancelled {
+    function bid(uint256 tokenId, uint128 amount) external payable notCancelled {
         if (whitelistOnly) {
             require(isWhitelisted[msg.sender], "DAOKIT: NOT_WHITELISTED");
         }
-        _bid(bids.length, amount);
+        _bid(bids.length, tokenId, amount);
     }
 
     /**
      * @notice Anyone can bid by sending a certain `amount` of `currency` to this contract.
      */
     function bid(
+        uint256 tokenId,
         uint128 amount,
         bytes32 merkleRoot,
         bytes32[] calldata merkleProof
@@ -277,17 +276,22 @@ abstract contract BaseIDO is Ownable, Whitelist {
         require(isValidMerkleRoot[merkleRoot], "DAOKIT: INVALID_ROOT");
         require(verify(merkleRoot, keccak256(abi.encodePacked(msg.sender)), merkleProof), "DAOKIT: INVALID_PROOF");
 
-        _bid(bids.length, amount);
+        _bid(bids.length, tokenId, amount);
     }
 
-    function _bid(uint256 id, uint128 amount) internal virtual {
+    function _bid(
+        uint256 id,
+        uint256 tokenId,
+        uint128 amount
+    ) internal virtual {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
-        require(started(), "DAOKIT: NOT_STARTED");
-        require(!finished(), "DAOKIT: FINISHED");
+        require(started(tokenId), "DAOKIT: NOT_STARTED");
+        require(!finished(tokenId), "DAOKIT: FINISHED");
 
         uint128 amountAvailable = _amountAvailable(msg.sender, amount);
 
         BidInfo storage info = bids.push();
+        info.tokenId = tokenId;
         info.amount = amountAvailable;
         info.account = msg.sender;
         info.timestamp = uint64(block.timestamp);
@@ -295,7 +299,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
         totalAmount += amountAvailable;
         _amounts[msg.sender] += amountAvailable;
 
-        emit Bid(id, msg.sender, amountAvailable);
+        emit Bid(id, msg.sender, tokenId, amountAvailable);
 
         address _currency = currency;
         if (_currency == address(0)) {
@@ -320,26 +324,30 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Users who bid can claim their `asset`s that correspond to `bidIds` if the IDO finished
      *  successfully, which means it reached the soft cap if it exists.
      */
-    function claim(uint256[] calldata bidIds) external notCancelled afterFinished {
+    function claim(uint256[] calldata bidIds) external notCancelled {
         require(softCap == 0 || softCap <= totalAmount, "DAOKIT: SOFT_CAP_NOT_REACHED");
 
         uint256[] memory tokenIds = new uint256[](bidIds.length);
         uint256[] memory amounts = new uint256[](bidIds.length);
         for (uint256 i; i < bidIds.length; i++) {
             uint256 id = bidIds[i];
-            (uint256 tokenId, uint256 amount) = _claim(id, bids[id]);
+            (uint256 tokenId, uint256 amount) = _claim(id);
             tokenIds[i] = tokenId;
             amounts[i] = amount;
         }
         _offerAssets(msg.sender, tokenIds, amounts);
     }
 
-    function _claim(uint256 bidId, BidInfo storage info) internal virtual returns (uint256 tokenId, uint256 amount) {
+    function _claim(uint256 bidId) internal virtual returns (uint256 tokenId, uint256 amount) {
+        BidInfo storage info = bids[bidId];
+        require(finished(info.tokenId), "DAOKIT: NOT_FINISHED");
         require(info.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!info.claimedOrRefunded, "DAOKIT: CLAIMED");
         info.claimedOrRefunded = true;
 
-        (tokenId, amount) = _claimableAsset(info.amount, info.timestamp);
+        tokenId = info.tokenId;
+        amount = _claimableAsset(bidId, info);
+        require(amount > 0, "DAOKIT: INSUFFICIENT_AMOUNT");
         emit Claim(bidId, msg.sender, tokenId, amount);
     }
 
@@ -347,7 +355,7 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Users who bid can get refunded with `bidIds` if the IDO didn't finish  successfully, which means
      *  it didn't reach the soft cap.
      */
-    function refund(uint256[] memory bidIds) external notCancelled afterFinished {
+    function refund(uint256[] memory bidIds) external notCancelled {
         require(softCap > 0 && totalAmount < softCap, "DAOKIT: SOFT_CAP_REACHED");
 
         for (uint256 i; i < bidIds.length; i++) {
@@ -357,12 +365,13 @@ abstract contract BaseIDO is Ownable, Whitelist {
 
     function _refund(uint256 id) internal virtual {
         BidInfo storage info = bids[id];
+        require(finished(info.tokenId), "DAOKIT: NOT_FINISHED");
         require(info.account == msg.sender, "DAOKIT: FORBIDDEN");
         require(!info.claimedOrRefunded, "DAOKIT: REFUNDED");
         info.claimedOrRefunded = true;
 
         uint128 _amount = info.amount;
-        emit Refund(id, msg.sender, _amount);
+        emit Refund(id, msg.sender, info.tokenId, _amount);
         currency.safeTransfer(msg.sender, _amount);
     }
 
@@ -370,8 +379,11 @@ abstract contract BaseIDO is Ownable, Whitelist {
      * @notice Only `owner` can close the IDO after it finishes. If it was successful all the funds are sent to `owner,
      *  otherwise all `asset`s are returned to the `owner`.
      */
-    function close(uint256[] memory tokenIds) external onlyOwner notCancelled afterFinished {
+    function close(uint256[] memory tokenIds) external onlyOwner notCancelled {
         require(!closed, "DAOKIT: CLOSED");
+        for (uint256 i; i < tokenIds.length; i++) {
+            require(finished(tokenIds[i]), "DAOKIT: NOT_FINISHED");
+        }
 
         closed = true;
         emit Close();
