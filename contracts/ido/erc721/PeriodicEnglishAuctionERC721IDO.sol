@@ -51,7 +51,8 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
         uint256 tokenId,
         uint128 amount
     ) internal override {
-        (uint128 reservePrice, uint64 duration, uint56 extension, uint8 minBidIncrement, ) = parseParams();
+        (uint128 reservePrice, uint64 duration, uint56 extension, uint8 minBidInc, uint256 maxTokenId) = parseParams();
+        require(tokenId < maxTokenId, "DAOKIT: INVALID_TOKEN_ID");
 
         uint64 _now = uint64(block.timestamp);
         Auction storage auction = auctions[tokenId];
@@ -64,7 +65,7 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
             auction.deadline = start + duration;
         } else {
             BidInfo storage info = bids[_currentBidId];
-            require((info.amount * minBidIncrement) / 100 <= amount, "DAOKIT: UNDERBIDDEN");
+            require((info.amount * minBidInc) / 100 <= amount, "DAOKIT: UNDERBIDDEN");
 
             if (auction.deadline - extension < _now) {
                 auction.deadline = _now + extension;
