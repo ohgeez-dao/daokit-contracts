@@ -19,6 +19,11 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
         // Empty
     }
 
+    function expired(uint256 tokenId) public view override returns (bool) {
+        uint64 deadline = auctions[tokenId].deadline;
+        return 0 < deadline && deadline <= uint64(block.timestamp);
+    }
+
     /**
      * @notice
      *  `reservePrice`: the starting price of each auction
@@ -58,8 +63,6 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
 
             auction.deadline = start + duration;
         } else {
-            require(_now < auction.deadline, "DAOKIT: EXPIRED");
-
             BidInfo storage info = bids[_currentBidId];
             require((info.amount * minBidIncrement) / 100 <= amount, "DAOKIT: UNDERBIDDEN");
 
