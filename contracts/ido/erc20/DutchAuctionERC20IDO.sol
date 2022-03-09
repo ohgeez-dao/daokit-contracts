@@ -20,8 +20,12 @@ contract DutchAuctionERC20IDO is BaseERC20IDO {
         return abi.decode(params, (uint64, uint64));
     }
 
-    function finished(uint256 tokenId) public view override returns (bool) {
-        return expired(tokenId) || hardCap <= _weightedTotalAmount();
+    function finished() public view override returns (bool) {
+        return start + duration <= block.timestamp || hardCap <= _weightedTotalAmount();
+    }
+
+    function failed() public view override returns (bool) {
+        return start + duration <= block.timestamp && (softCap > 0 && _weightedTotalAmount() < softCap);
     }
 
     function _claimableAsset(uint256, BidInfo memory info) internal view override returns (uint256 amount) {

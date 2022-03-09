@@ -2,15 +2,15 @@
 
 pragma solidity 0.8.12;
 
-import "./BaseERC721IDO.sol";
+import "./BaseERC721MintableIDO.sol";
 
 /**
  * @notice This ERC721 IDO processes multiple english auctions for NFTs at the same time
  */
-contract ConcurrentEnglishAuctionERC721IDO is BaseERC721IDO {
+contract ConcurrentEnglishAuctionERC721IDO is BaseERC721MintableIDO {
     mapping(uint256 => uint256) public currentBidId;
 
-    constructor(address _owner, Config memory config) BaseERC721IDO(_owner, config) {
+    constructor(address _owner, Config memory config) BaseERC721MintableIDO(_owner, config) {
         // Empty
     }
 

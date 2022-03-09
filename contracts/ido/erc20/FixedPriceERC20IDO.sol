@@ -5,8 +5,8 @@ pragma solidity 0.8.12;
 import "./BaseERC20IDO.sol";
 
 /**
- * @notice This ERC20 IDO always returns the same `claimableAmount` for a same `bidAmount`.
- *  (claimableAmount = bidAmount * ratio / RATIO_PRECISION)
+ * @notice This ERC20 IDO always returns the same `claimableAsset` for a same `bidAmount`.
+ *  (claimableAsset = bidAmount * ratio / RATIO_PRECISION)
  */
 contract FixedPriceERC20IDO is BaseERC20IDO {
     uint64 public constant RATIO_PRECISION = 10 ^ 18;

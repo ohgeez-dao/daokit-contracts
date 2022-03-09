@@ -2,15 +2,15 @@
 
 pragma solidity 0.8.12;
 
-import "./BaseERC721IDO.sol";
+import "./BaseERC721MintableIDO.sol";
 
 /**
  * @notice This ERC721 IDO processes multiple dutch auctions for NFTs at the same time
  */
-contract ConcurrentDutchAuctionERC721IDO is BaseERC721IDO {
+contract ConcurrentDutchAuctionERC721IDO is BaseERC721MintableIDO {
     mapping(uint256 => uint128) public finalPrice;
 
-    constructor(address _owner, Config memory config) BaseERC721IDO(_owner, config) {
+    constructor(address _owner, Config memory config) BaseERC721MintableIDO(_owner, config) {
         // Empty
     }
 
@@ -44,27 +44,28 @@ contract ConcurrentDutchAuctionERC721IDO is BaseERC721IDO {
         super._updateConfig(config);
     }
 
-    function finished(uint256 tokenId) public view override returns (bool) {
-        return expired(tokenId) || finalPrice[tokenId] > 0;
-    }
-
     function _bid(
         uint256 id,
         uint256 tokenId,
         uint128 amount
     ) internal override {
         require(amount > 0, "DAOKIT: INVALID_AMOUNT");
-        require(started(tokenId), "DAOKIT: NOT_STARTED");
-        require(!finished(tokenId), "DAOKIT: FINISHED");
+        require(started(), "DAOKIT: NOT_STARTED");
+        require(!finished(), "DAOKIT: FINISHED");
+        require(finalPrice[tokenId] == 0, "DAOKIT: AUCTION_FINISHED");
+
+        bids.push(); // Add empty BidInfo to increase bid id
 
         (, , uint256 maxTokenId) = parseParams();
         require(tokenId < maxTokenId, "DAOKIT: INVALID_TOKEN_ID");
 
         uint128 price = _priceAt(uint64(block.timestamp));
+        require(price <= amount, "DAOKIT: INSUFFICIENT_AMOUNT");
+
         totalRaised += price;
         finalPrice[tokenId] = price;
         emit Bid(id, msg.sender, tokenId, price);
-        _transferCurrency(price);
+        _pullCurrency(price);
 
         emit Claim(id, msg.sender, tokenId, 1);
         uint256[] memory tokenIds = new uint256[](1);

@@ -2,12 +2,12 @@
 
 pragma solidity 0.8.12;
 
-import "./BaseERC721IDO.sol";
+import "./BaseERC721MintableIDO.sol";
 
 /**
  * @notice This ERC721 IDO schedules periodic english auctions for NFTs starting from tokenId 0
  */
-contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
+contract PeriodicEnglishAuctionERC721IDO is BaseERC721MintableIDO {
     mapping(uint256 => Auction) public auctions;
 
     struct Auction {
@@ -15,13 +15,8 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
         uint256 currentBidId;
     }
 
-    constructor(address _owner, Config memory config) BaseERC721IDO(_owner, config) {
+    constructor(address _owner, Config memory config) BaseERC721MintableIDO(_owner, config) {
         // Empty
-    }
-
-    function expired(uint256 tokenId) public view override returns (bool) {
-        uint64 deadline = auctions[tokenId].deadline;
-        return 0 < deadline && deadline <= uint64(block.timestamp);
     }
 
     /**
@@ -56,6 +51,8 @@ contract PeriodicEnglishAuctionERC721IDO is BaseERC721IDO {
 
         uint64 _now = uint64(block.timestamp);
         Auction storage auction = auctions[tokenId];
+        require(_now < auction.deadline, "DAOKIT: AUCTION_FINISHED");
+
         uint256 _currentBidId = auction.currentBidId;
         auction.currentBidId = id;
         if (_currentBidId == 0) {

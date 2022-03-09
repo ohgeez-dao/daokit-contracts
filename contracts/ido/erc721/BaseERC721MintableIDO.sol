@@ -29,4 +29,8 @@ abstract contract BaseERC721MintableIDO is BaseERC721IDO {
             IERC721Mintable(asset).mint(to, tokenIds[i]);
         }
     }
+
+    function _returnAssets(uint256[] memory) internal virtual override {
+        // Empty
+    }
 }
